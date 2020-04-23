@@ -46,6 +46,12 @@ a:visited {
   overflow-wrap: break-word;
 }
 
+.peers {
+  position: fixed;
+  right: 0;
+  top: 0;
+}
+
 .user {
   text-decoration: none;
 }

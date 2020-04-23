@@ -1,6 +1,6 @@
 let eventHandlerIdIncrement = 0
 
-export default class Element {
+class Element {
   constructor (html, state = {}, methods = {}) {
     this.html = html
     this.state = state
@@ -42,7 +42,7 @@ export default class Element {
   }
 }
 
-export function $ (...args) {
+window.$ = function $ (...args) {
   return new Element(...args)
 }
 

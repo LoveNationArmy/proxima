@@ -1,7 +1,7 @@
-base = document.location.origin
+base = 'http://localhost' //document.location.origin
 randomId = () => (Math.random() * 10e6 | 0).toString(36) + (Math.random() * 10e6 | 0).toString(36)
 cid = randomId() // client id
-chat = new Set
+chat = new Set(localStorage.chat ? localStorage.chat.split('\r\n') : [])
 offers = []
 visitedOffers = []
 channels = []
@@ -17,14 +17,17 @@ post = (a, data) => {
 waitFor = (n) => () => new Promise(resolve => setTimeout(resolve, n * 1000))
 ownOffer = {}
 createPeer = () => new RTCPeerConnection({
-  // iceServers: []
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302'}]
+  iceServers: []
+  // iceServers: [{ urls: 'stun:stun.l.google.com:19302'}]
 })
 setupChannel = ({ channel }) => {
   channel.data = new Set
   return new Promise(resolve => {
     channel.onopen = () => {
       channels.push(channel)
+      if (localStorage.chat) {
+        channel.send(`\t${localStorage.chat}`)
+      }
       resolve()
     }
     channel.onclose = () => {
@@ -38,7 +41,9 @@ setupChannel = ({ channel }) => {
       if (!channel.data.has(data)) {
         console.log('new data', path, data)
         channel.data.add(data)
-        data.split('\n').forEach(msg => chat.add(msg))
+        data.split('\r\n').forEach(msg => chat.add(msg))
+        localStorage.chat = [...chat].sort().join('\r\n')
+        render()
         channels.filter(other => other !== channel).forEach(other => {
           if (!other.data.has(data)) {
             other.data.add(data)
@@ -133,6 +138,7 @@ notVisitedOffer = offerId => !visitedOffers.includes(offerId)
 getOffers = async () => log('offers')(offers = await get(base))
 filterOffers = () => (offers = offers.filter(notOwnOffer).filter(notKnownPeer).filter(notVisitedOffer))
 getNextOffer = async (offerId = offers.splice(Math.floor(Math.random() * offers.length), 1)[0]) => log('next offer')(offerId, await get(`${base}/?id=offers/${offerId}`))
+// getNextOffer = async (offerId = offers.pop()) => log('next offer')(offerId, await get(`${base}/?id=offers/${offerId}`))
 postOffer = async d => await post(base, { cid, d })
 postAnswer = async (id, d) => {
   if (!notKnownPeer(id)) throw new Error('Answer aborted, known peer')
@@ -221,9 +227,9 @@ tryOffer = async () => {
     await delOffer(offer.id)
   }
 }
-maxNOfPeers = 4
+maxNOfPeers = 6
 repeatSecs = 10
-randSecs = () => Math.random() * (2 + peers.length * 5)
+randSecs = () => Math.random() * (1 + peers.length * 3)
 ifPeersLessThan = (n) => peers.length < n ? Promise.resolve() : Promise.reject(new Error('Peers max'))
 repeatOffer = () => tryOffer().finally(() => ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(repeatOffer))
 repeatAnswer = () => tryAnswer().finally(() => ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(repeatAnswer))

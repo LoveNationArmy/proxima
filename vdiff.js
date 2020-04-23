@@ -1,5 +1,5 @@
 
-export default function vDiff (target, source) {
+window.morphdom = function vDiff (target, source) {
     const worker = {
         settings: {
             original: target,

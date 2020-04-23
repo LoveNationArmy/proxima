@@ -1,5 +1,5 @@
-import { $ } from './element.js'
-import morphdom from './vdiff.js'
+// import { $ } from './element.js'
+// import morphdom from './vdiff.js'
 
 const App = ({ wall }, { createPost }) => `
   <div class="app">
@@ -35,7 +35,7 @@ const parsePost = post => {
 
 const toTree = wall => {
   const tree = []
-  const parsed = [...wall].map(parsePost)
+  const parsed = [...wall].map(parsePost).sort((a, b) => a.time - b.time)
   const map = parsed.reduce((p, n) => (p[n.id] = n, p), {})
   parsed.forEach(post => {
     if (post.re)
@@ -76,6 +76,7 @@ function createPost (msg) {
   const id = randomId()
   const post = `${cid}#${id}#${Date.now()},${msg}`
   state.wall.add(post)
+  localStorage.chat = [...chat].sort().join('\r\n')
   channels.forEach(c => c.send(`${cid}\t${post}`))
 }
 
@@ -86,7 +87,7 @@ function getUser (cid) {
 const el = container
 const app = window.app = $(App, state, { createPost })
 
-const render = () => {
+const render = window.render = () => {
   const html = app.toString()
   morphdom(el, html)
 }
