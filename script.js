@@ -1,7 +1,15 @@
 base = 'http://localhost' //document.location.origin
 randomId = () => (Math.random() * 10e6 | 0).toString(36) + (Math.random() * 10e6 | 0).toString(36)
+randomNick = () => {
+  const nicks = [
+    'john', 'anna', 'bob', 'suzanne', 'joe', 'mary', 'phil', 'julia', 'george', 'kate', 'chris', 'christine'
+  ]
+  return nicks[Math.random() * nicks.length | 0]
+}
 cid = randomId() // client id
+query = Object.fromEntries(new URLSearchParams(document.location.search))
 chat = new Set(localStorage.chat ? localStorage.chat.split('\r\n') : [])
+meta = new Set([`${cid}#0#nick,${query.nick === 'rand' ? randomNick() : query.nick || randomNick() }`])
 offers = []
 visitedOffers = []
 channels = []
@@ -28,6 +36,7 @@ setupChannel = ({ channel }) => {
       if (localStorage.chat) {
         channel.send(`\t${localStorage.chat}`)
       }
+      channel.send(`\t\0${[...meta].join('\n')}`)
       resolve()
     }
     channel.onclose = () => {
@@ -38,12 +47,18 @@ setupChannel = ({ channel }) => {
     channel.onmessage = ({ data }) => {
       [path, data] = data.split('\t')
       path = `${path}:${channel.peer.cid}`
+      // have we already received this data?
       if (!channel.data.has(data)) {
-        console.log('new data', path, data)
+        // console.log('new data', path, data)
         channel.data.add(data)
-        data.split('\r\n').forEach(msg => chat.add(msg))
-        localStorage.chat = [...chat].sort().join('\r\n')
+        if (data[0] === '\0') { // data is meta
+          data.slice(1).split('\n').forEach(msg => meta.add(msg))
+        } else { // data are chat
+          data.split('\r\n').forEach(msg => chat.add(msg))
+          localStorage.chat = [...chat].sort().join('\r\n')
+        }
         render()
+        // rebroadcast to peers
         channels.filter(other => other !== channel).forEach(other => {
           if (!other.data.has(data)) {
             other.data.add(data)
@@ -51,7 +66,7 @@ setupChannel = ({ channel }) => {
           }
         })
       } else {
-        console.log('discarding', path, data)
+        // console.log('discarding', path, data)
       }
     }
   })
@@ -130,7 +145,7 @@ createRtcAnswer = async d => {
   return promise
 }
 
-log = pre => (...args) => (console.log(`${pre}:`, ...args), args)
+log = pre => (...args) => args //(console.log(`${pre}:`, ...args), args)
 
 notOwnOffer = offerId => offerId.split('.').pop() != cid
 notKnownPeer = offerId => !peers.map(peer => peer.cid).includes(offerId.split('.').pop())
@@ -160,14 +175,14 @@ tryAnswer = async () => {
   visitedOffers.push(offerId)
   const [peer, d] = await createRtcAnswer(offer.d) // create rtc answer
   try {
-    console.log('posting answer', offerId, d)
+    // console.log('posting answer', offerId, d)
     await postAnswer(offerId, d)
     await peer.connect()
     peer.cid = offerId.split('.').pop()
     peers.push(peer)
-    console.log('connection established by answer', peer)
+    // console.log('connection established by answer', peer)
   } catch (error) {
-    console.error(error)
+    // console.error(error)
     peer.close()
     await delOffer(offerId)
   }
@@ -177,17 +192,17 @@ tryOffer = async () => {
   if (ownOffer.id && !ownOffer.answered) {
     throw new Error('Trying offer when not answered yet')
   }
-  console.log('creating offer')
+  // console.log('creating offer')
   const [peer, d] = await createRtcOffer() // create rtc offer
   try {
     const offer = ownOffer = await postOffer(d)
-    console.log('created offer', offer)
+    // console.log('created offer', offer)
     let timedOut = false
     let rd, cid
     waitForAnswer = async () => {
       let answer
       try {
-        console.log('waiting for answer:', offer.id)
+        // console.log('waiting for answer:', offer.id)
         answer = await getAnswer(offer.id)
       } catch {}
       if (answer) {
@@ -196,10 +211,10 @@ tryOffer = async () => {
         cid = answer.cid
       } else {
         if (offer.timedOut) {
-          console.log('timed out, no answer')
+          // console.log('timed out, no answer')
           return
         }
-        console.log('no answer yet...')
+        // console.log('no answer yet...')
         await ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(waitForAnswer)
       }
     }
@@ -210,7 +225,7 @@ tryOffer = async () => {
       ownOffer = {}
       throw new Error('Offer timed out.')
     }
-    console.log('received answer', rd)
+    // console.log('received answer', rd)
     peer.setRemoteDescription(rd[0])
     for (var i = 1; i < rd.length; i++) {
       await peer.addIceCandidate(rd[i])
@@ -218,10 +233,10 @@ tryOffer = async () => {
     await setupChannel(peer)
     peer.cid = cid
     peers.push(peer)
-    console.log('connection established by offer', peer)
+    // console.log('connection established by offer', peer)
     offer.answered = true
   } catch (error) {
-    console.error(error)
+    // console.error(error)
     peer.close()
     ownOffer = {}
     await delOffer(offer.id)

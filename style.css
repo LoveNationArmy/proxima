@@ -19,6 +19,7 @@ html, body, #container {
   --main-light: #abe;
   --main: #38f;
   --light: #bbb;
+  --very-light: #eee;
 }
 
 /* app */
@@ -33,23 +34,41 @@ a:visited {
 }
 
 .app {
-  padding: 10px;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
 }
 
 .app h1 a {
   color: var(--main);
 }
 
+.main {
+  padding: 10px;
+  height: 100%;
+  /*max-height: 100%;*/
+  width: 80%;
+  overflow-wrap: break-word;
+  overflow-y: scroll;
+}
+
+.side {
+  padding: 10px;
+  background: var(--very-light);
+  width: 20%;
+  overflow-wrap: break-word;
+  overflow-y: scroll;
+}
+
+.side .peer.in-network {
+  color: var(--light);
+}
 /* wall */
 
 .wall {
   overflow-wrap: break-word;
-}
-
-.peers {
-  position: fixed;
-  right: 0;
-  top: 0;
 }
 
 .user {

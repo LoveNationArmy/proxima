@@ -1,29 +1,40 @@
 // import { $ } from './element.js'
 // import morphdom from './vdiff.js'
 
-const App = ({ wall }, { createPost }) => `
+const App = ({ wall, meta }, { createPost }) => `
   <div class="app">
-    <h1><a href="/">stencil</a></h1>
-    <textarea id="newPost"></textarea>
-    <button onclick="${ createPost }(newPost.value), newPost.value = ''">post</button>
-    <div class="peers">
-      ${ $.map(peers, peer => `<div class="peer">${htmlescape(peer.cid)}</div>`) }
+    <div class="main">
+      <h1><a href="/">stencil</a></h1>
+      <div class="nick">${ meta.nicks[cid] }</div>
+      <textarea id="newPost"></textarea>
+      <button onclick="${ createPost }(newPost.value), newPost.value = ''">post</button>
+      <div class="wall">
+        ${ $.map(wall.reverse(), post => $(Post, { meta, ...post })) }
+      </div>
     </div>
-    <div class="wall">
-      ${ $.map(toTree(wall).reverse(), post => $(Post, post)) }
+    <div class="side">
+      <div class="peers">
+        ${ $.map(peers.map(peer => meta.getUser(peer.cid)).sort(), nick =>
+          `<div class="peer">${htmlescape(nick)}</div>`) }
+        ${ $.map(Object.keys(meta.nicks)
+          .filter(pcid => !peers.map(peer => peer.cid).includes(pcid) && pcid !== cid)
+          .map(pcid => meta.getUser(pcid))
+          .sort(), nick =>
+          `<div class="peer in-network">${htmlescape(nick)}</div>`) }
+      </div>
     </div>
   </div>
 `
 
-const Post = ({ user, time, text, replies = [] }) => `
+const Post = ({ meta, user, time, text, replies = [] }) => `
   <div class="post">
-    <a class="user" href="/#~${user}">${htmlescape(getUser(user))}:</a>
+    <a class="user" href="/#~${user}">${htmlescape(meta.getUser(user))}:</a>
     <info>
       <time>${new Date(+time).toLocaleString()}</time>
       <a href="#">reply</a>
     </info>
     <p>${htmlescape(text.join(','))}</p>
-    ${ $.map(replies, post => $(Post, post)) }
+    ${ $.map(replies, post => $(Post, { meta, ...post })) }
   </div>
 `
 
@@ -46,7 +57,39 @@ const toTree = wall => {
   return tree
 }
 
-const state = {}
+const parseMeta = _meta => {
+  let [meta, ...values] = _meta.split(',')
+  let [user, time, type] = meta.split('#')
+  return { user, time, type, values }
+}
+
+const toMeta = meta => {
+  const parsed = [...meta].map(parseMeta).sort((a, b) => a.time - b.time)
+  const data = {
+    getUser (cid) {
+      return cid in this.nicks ? this.nicks[cid] : cid
+    },
+    nicks: {}
+  }
+  parsed.forEach(({ type, user, values }) => {
+    switch (type) {
+      case 'nick':
+        data.nicks[user] = values[0]
+        break
+    }
+  })
+  return data
+}
+
+const state = {
+  get wall () {
+    return toTree(chat)
+  },
+
+  get meta () {
+    return toMeta(meta)
+  }
+}
 
 state.newPost = ''
 
@@ -56,8 +99,6 @@ state.users = {
   '3': 'fernando',
   '4': 'lamprou',
 }
-
-state.wall = chat
 
 const wallToCome = [
   '1#1#1568283231023,Hello, world! This is the first post',
@@ -73,9 +114,10 @@ const wallToCome = [
 ]
 
 function createPost (msg) {
+  if (!msg.length) return
   const id = randomId()
   const post = `${cid}#${id}#${Date.now()},${msg}`
-  state.wall.add(post)
+  chat.add(post)
   localStorage.chat = [...chat].sort().join('\r\n')
   channels.forEach(c => c.send(`${cid}\t${post}`))
 }
