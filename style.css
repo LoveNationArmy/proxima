@@ -1,0 +1,70 @@
+/* reset global styling */
+
+* {
+  margin: 0;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+html, body, #container {
+  width: 100%;
+  height: 100%;
+  font-size: 10pt;
+  font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* color variable declarations */
+
+:root {
+  --main-light: #abe;
+  --main: #38f;
+  --light: #bbb;
+}
+
+/* app */
+
+a {
+  color: var(--main);
+  cursor: pointer;
+}
+
+a:visited {
+  color: var(--main-light);
+}
+
+.app {
+  padding: 10px;
+}
+
+.app h1 a {
+  color: var(--main);
+}
+
+/* wall */
+
+.wall {
+  overflow-wrap: break-word;
+}
+
+.user {
+  text-decoration: none;
+}
+
+.post info {
+  opacity: 0.4;
+  font-size: 9px;
+  vertical-align: middle;
+}
+
+.post info * {
+  color: var(--light);
+  margin: 0 5px;
+}
+
+.post:hover info {
+  opacity: 1;
+}
+
+.post {
+  margin: 10px 15px;
+}
