@@ -56,6 +56,10 @@ a:visited {
   text-decoration: none;
 }
 
+.post p {
+  white-space: pre-line;
+}
+
 .post info {
   opacity: 0.4;
   font-size: 9px;

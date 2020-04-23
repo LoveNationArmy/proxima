@@ -7,7 +7,7 @@ const App = ({ wall }, { createPost }) => `
     <textarea id="newPost"></textarea>
     <button onclick="${ createPost }(newPost.value), newPost.value = ''">post</button>
     <div class="peers">
-      ${ $.map(peers, peer => `<div class="peer">${peer.cid}</div>`) }
+      ${ $.map(peers, peer => `<div class="peer">${htmlescape(peer.cid)}</div>`) }
     </div>
     <div class="wall">
       ${ $.map(toTree(wall).reverse(), post => $(Post, post)) }
@@ -17,12 +17,12 @@ const App = ({ wall }, { createPost }) => `
 
 const Post = ({ user, time, text, replies = [] }) => `
   <div class="post">
-    <a class="user" href="/#~${user}">${getUser(user)}:</a>
+    <a class="user" href="/#~${user}">${htmlescape(getUser(user))}:</a>
     <info>
       <time>${new Date(+time).toLocaleString()}</time>
       <a href="#">reply</a>
     </info>
-    <p>${text}</p>
+    <p>${htmlescape(text.join(','))}</p>
     ${ $.map(replies, post => $(Post, post)) }
   </div>
 `
@@ -82,6 +82,10 @@ function createPost (msg) {
 
 function getUser (cid) {
   return peers.filter(peer => peer.cid === cid)[0]?.username || cid
+}
+
+function htmlescape (text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;')
 }
 
 const el = container
