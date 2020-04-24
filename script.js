@@ -1,4 +1,4 @@
-base = document.location.origin
+base = 'http://localhost' //document.location.origin
 randomId = () => (Math.random() * 10e6 | 0).toString(36) + (Math.random() * 10e6 | 0).toString(36)
 randomNick = () => {
   const nicks = [
