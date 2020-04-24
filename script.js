@@ -24,6 +24,7 @@ post = (a, data) => {
 }
 waitFor = (n) => () => new Promise(resolve => setTimeout(resolve, n * 1000))
 ownOffer = {}
+broadcast = msg => channels.forEach(c => c.send(`${cid}\t${msg}`))
 createPeer = () => new RTCPeerConnection({
   iceServers: []
   // iceServers: [{ urls: 'stun:stun.l.google.com:19302'}]
@@ -34,9 +35,10 @@ setupChannel = ({ channel }) => {
     channel.onopen = () => {
       channels.push(channel)
       if (localStorage.chat) {
-        channel.send(`\t${localStorage.chat}`)
+        channel.send(`${cid}\t${localStorage.chat}`)
       }
-      channel.send(`\t\0${[...meta].join('\n')}`)
+      channel.send(`${cid}\t\0${[...meta].join('\n')}`)
+      render()
       resolve()
     }
     channel.onclose = () => {
@@ -44,7 +46,7 @@ setupChannel = ({ channel }) => {
       peers.splice(peers.indexOf(channel.peer), 1)
       connect()
     }
-    channel.onmessage = ({ data }) => {
+    channel.onmessage = async ({ data }) => {
       [path, data] = data.split('\t')
       path = `${path}:${channel.peer.cid}`
       // have we already received this data?
@@ -52,7 +54,47 @@ setupChannel = ({ channel }) => {
         // console.log('new data', path, data)
         channel.data.add(data)
         if (data[0] === '\0') { // data is meta
-          data.slice(1).split('\n').forEach(msg => meta.add(msg))
+          const [parts, ...values] = data.slice(1).split(',')
+          const [pcid, time, type] = parts.split('#')
+          console.log('got', pcid, time, type, values)
+          if (type === 'offer') {
+            if (values[0] === cid) {
+              console.log(cid, 'received offer from', pcid)
+              const [peer, d] = await createRtcAnswer(values.slice(1).join(',')) // create rtc answer
+              try {
+                console.log('broadcasting answer', d)
+                peer.cid = pcid
+                broadcast(`\0${cid}#${Date.now()}#answer,${pcid},${d}`)
+                await peer.connect()
+                peers.push(peer)
+                console.log('connection established by answer', peer)
+              } catch (error) {
+                console.error(error)
+                peer.close()
+              }
+            }
+          } else if (type === 'answer') {
+            if (values[0] === cid) {
+              console.log(cid, 'received answer from', pcid)
+              const { peer } = peerOffer
+              try {
+                console.log('processing answer', values[1])
+                const rd = JSON.parse(values.slice(1).join(','))
+                peer.setRemoteDescription(rd[0])
+                for (var i = 1; i < rd.length; i++) {
+                  await peer.addIceCandidate(rd[i])
+                }
+                await setupChannel(peer)
+                peers.push(peer)
+                console.log('connection established by offer', peer)
+              } catch (error) {
+                peer.close()
+                peerOffer = {}
+              }
+            }
+          } else {
+            data.slice(1).split('\n').forEach(msg => meta.add(msg))
+          }
         } else { // data are chat
           data.split('\r\n').forEach(msg => chat.add(msg))
           localStorage.chat = [...chat].sort().join('\r\n')
@@ -186,6 +228,18 @@ tryAnswer = async () => {
     peer.close()
     await delOffer(offerId)
   }
+}
+
+peerOffer = {}
+offerToPeer = async (pcid) => {
+  console.log('creating offer to', pcid)
+  const [peer, d] = await createRtcOffer() // create rtc offer
+  peerOffer.peer = peer
+  peerOffer.peer.cid = pcid
+  peerOffer.time = Date.now()
+  const msg = `\0${cid}#${peerOffer.time}#offer,${pcid},${d}`
+  console.log('broadcasting offer', msg)
+  broadcast(msg)
 }
 
 tryOffer = async () => {

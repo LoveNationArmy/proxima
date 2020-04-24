@@ -1,7 +1,7 @@
 // import { $ } from './element.js'
 // import morphdom from './vdiff.js'
 
-const App = ({ wall, meta }, { createPost }) => `
+const App = ({ wall, meta }, { createPost, offerToPeer }) => `
   <div class="app">
     <div class="main">
       <h1><a href="/">stencil</a></h1>
@@ -14,13 +14,13 @@ const App = ({ wall, meta }, { createPost }) => `
     </div>
     <div class="side">
       <div class="peers">
-        ${ $.map(peers.map(peer => meta.getUser(peer.cid)).sort(), nick =>
+        ${ $.map(peers.map(peer => [peer.cid, meta.getUser(peer.cid)]).sort((a, b) => a[1] > b[1] ? 1 : a[1] < b[1] ? -1 : 0), ([pcid, nick]) =>
           `<div class="peer">${htmlescape(nick)}</div>`) }
         ${ $.map(Object.keys(meta.nicks)
           .filter(pcid => !peers.map(peer => peer.cid).includes(pcid) && pcid !== cid)
-          .map(pcid => meta.getUser(pcid))
-          .sort(), nick =>
-          `<div class="peer in-network">${htmlescape(nick)}</div>`) }
+          .map(pcid => [pcid, meta.getUser(pcid)])
+          .sort((a, b) => a[1] > b[1] ? 1 : a[1] < b[1] ? -1 : 0), ([pcid, nick]) =>
+          `<div class="peer in-network" data-cid="${pcid}" onclick="${ offerToPeer }(this.dataset.cid)">${htmlescape(nick)}</div>`) }
       </div>
     </div>
   </div>
@@ -131,7 +131,7 @@ function htmlescape (text) {
 }
 
 const el = container
-const app = window.app = $(App, state, { createPost })
+const app = window.app = $(App, state, { createPost, offerToPeer })
 
 const render = window.render = () => {
   const html = app.toString()

@@ -65,6 +65,7 @@ a:visited {
 .side .peer.in-network {
   color: var(--light);
 }
+
 /* wall */
 
 .wall {
