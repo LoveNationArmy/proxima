@@ -4,7 +4,7 @@
 const App = ({ wall, meta }, { createPost, offerToPeer }) => `
   <div class="app">
     <div class="main">
-      <h1><a href="/">stencil</a></h1>
+      <h1><a href="/">proxima</a></h1>
       <div class="nick">${ meta.nicks[cid] }</div>
       <textarea id="newPost"></textarea>
       <button onclick="${ createPost }(newPost.value), newPost.value = ''">post</button>
