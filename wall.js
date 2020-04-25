@@ -14,13 +14,12 @@ const App = ({ wall, meta }, { createPost, offerToPeer }) => `
     </div>
     <div class="side">
       <div class="peers">
-        ${ $.map(peers.map(peer => [peer.cid, meta.getUser(peer.cid)]).sort((a, b) => a[1] > b[1] ? 1 : a[1] < b[1] ? -1 : 0), ([pcid, nick]) =>
-          `<div class="peer">${htmlescape(nick)}</div>`) }
-        ${ $.map(Object.keys(meta.nicks)
+        ${ $.map(peers.map(peer => [peer.cid, meta.getUser(peer.cid)]).concat(Object.keys(meta.nicks)
           .filter(pcid => !peers.map(peer => peer.cid).includes(pcid) && pcid !== cid)
-          .map(pcid => [pcid, meta.getUser(pcid)])
-          .sort((a, b) => a[1] > b[1] ? 1 : a[1] < b[1] ? -1 : 0), ([pcid, nick]) =>
-          `<div class="peer in-network" data-cid="${pcid}" onclick="${ offerToPeer }(this.dataset.cid)">${htmlescape(nick)}</div>`) }
+          .map(pcid => [pcid, meta.getUser(pcid), true]))
+          .sort((a, b) => a[1] > b[1] ? 1 : a[1] < b[1] ? -1 : 0)
+        , ([pcid, nick, inNetwork]) =>
+          `<div class="peer ${inNetwork ? 'in-network' : ''}" ${inNetwork ? `data-cid="${pcid}" onclick="${ offerToPeer }(this.dataset.cid)"` : ''}>${htmlescape(nick)}</div>`) }
       </div>
     </div>
   </div>
@@ -119,7 +118,7 @@ function createPost (msg) {
   const post = `${cid}#${id}#${Date.now()},${msg}`
   chat.add(post)
   localStorage.chat = [...chat].sort().join('\r\n')
-  channels.forEach(c => c.send(`${cid}\t${post}`))
+  broadcast(post)
 }
 
 function getUser (cid) {

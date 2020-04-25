@@ -24,20 +24,25 @@ post = (a, data) => {
 }
 waitFor = (n) => () => new Promise(resolve => setTimeout(resolve, n * 1000))
 ownOffer = {}
-broadcast = msg => channels.forEach(c => c.send(`${cid}\t${msg}`))
+send = (channel, msg) => {
+  channel.data.add(msg)
+  channel.send(`${cid}\t${msg}`)
+}
+broadcast = msg => channels.forEach(channel => send(channel, msg))
 createPeer = () => new RTCPeerConnection({
   iceServers: []
   // iceServers: [{ urls: 'stun:stun.l.google.com:19302'}]
 })
+me = { data: new Set }
 setupChannel = ({ channel }) => {
   channel.data = new Set
   return new Promise(resolve => {
     channel.onopen = () => {
       channels.push(channel)
       if (localStorage.chat) {
-        channel.send(`${cid}\t${localStorage.chat}`)
+        send(channel, localStorage.chat)
       }
-      channel.send(`${cid}\t\0${[...meta].join('\n')}`)
+      send(channel, `\0${[...meta].join('\n')}`)
       render()
       resolve()
     }
@@ -47,27 +52,26 @@ setupChannel = ({ channel }) => {
       connect()
     }
     channel.onmessage = async ({ data }) => {
-      [path, data] = data.split('\t')
+      var [path, data] = data.split('\t')
       path = `${path}:${channel.peer.cid}`
       // have we already received this data?
-      if (!channel.data.has(data)) {
-        // console.log('new data', path, data)
+      if (!me.data.has(data)) {
+        me.data.add(data)
         channel.data.add(data)
         if (data[0] === '\0') { // data is meta
           const [parts, ...values] = data.slice(1).split(',')
           const [pcid, time, type] = parts.split('#')
-          console.log('got', pcid, time, type, values)
           if (type === 'offer') {
             if (values[0] === cid) {
-              console.log(cid, 'received offer from', pcid)
+              console.log(cid, 'received offer from', pcid, data.length)
               const [peer, d] = await createRtcAnswer(values.slice(1).join(',')) // create rtc answer
               try {
-                console.log('broadcasting answer', d)
+                // console.log('broadcasting answer', d)
                 peer.cid = pcid
                 broadcast(`\0${cid}#${Date.now()}#answer,${pcid},${d}`)
                 await peer.connect()
                 peers.push(peer)
-                console.log('connection established by answer', peer)
+                console.log('connection established by answer', peer.cid)
               } catch (error) {
                 console.error(error)
                 peer.close()
@@ -75,10 +79,11 @@ setupChannel = ({ channel }) => {
             }
           } else if (type === 'answer') {
             if (values[0] === cid) {
-              console.log(cid, 'received answer from', pcid)
+              console.log(cid, 'received answer from', pcid, data.length)
               const { peer } = peerOffer
+              // console.log('ANSWER peer is', peer)
               try {
-                console.log('processing answer', values[1])
+                console.log('processing answer')
                 const rd = JSON.parse(values.slice(1).join(','))
                 peer.setRemoteDescription(rd[0])
                 for (var i = 1; i < rd.length; i++) {
@@ -86,8 +91,10 @@ setupChannel = ({ channel }) => {
                 }
                 await setupChannel(peer)
                 peers.push(peer)
-                console.log('connection established by offer', peer)
+                console.log('connection established by offer', peer.cid)
+                peerOffer = {}
               } catch (error) {
+                console.error(error)
                 peer.close()
                 peerOffer = {}
               }
@@ -160,7 +167,7 @@ createRtcAnswer = async d => {
     }
   })
 
-  promise = new Promise((resolve, reject) => {
+  const promise = new Promise((resolve, reject) => {
     timeout = setTimeout(() => {
       console.error('answer ice candidate missing, sending local description')
       resolve([peer, JSON.stringify([peer.localDescription, ...data])])
@@ -238,7 +245,7 @@ offerToPeer = async (pcid) => {
   peerOffer.peer.cid = pcid
   peerOffer.time = Date.now()
   const msg = `\0${cid}#${peerOffer.time}#offer,${pcid},${d}`
-  console.log('broadcasting offer', msg)
+  // console.log('broadcasting offer', msg)
   broadcast(msg)
 }
 
@@ -269,7 +276,7 @@ tryOffer = async () => {
           return
         }
         // console.log('no answer yet...')
-        await ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(waitForAnswer)
+        await waitFor(randSecs())().then(waitForAnswer)
       }
     }
     await Promise.race([waitForAnswer(), waitFor(50)()])
@@ -296,9 +303,9 @@ tryOffer = async () => {
     await delOffer(offer.id)
   }
 }
-maxNOfPeers = 6
+maxNOfPeers = 5
 repeatSecs = 10
-randSecs = () => Math.random() * (1 + peers.length * 3)
+randSecs = () => Math.random() * (1 + peers.length ** 3)
 ifPeersLessThan = (n) => peers.length < n ? Promise.resolve() : Promise.reject(new Error('Peers max'))
 repeatOffer = () => tryOffer().finally(() => ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(repeatOffer))
 repeatAnswer = () => tryAnswer().finally(() => ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(repeatAnswer))
