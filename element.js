@@ -1,55 +1,94 @@
-let eventHandlerIdIncrement = 0
+// copyright 2019-2020 stagas
+// all rights reserved
 
-class Element {
-  constructor (html, state = {}, methods = {}) {
-    this.html = html
-    this.state = state
-    this.methods = {}
+let handlerIdIncrement = 0
 
-    Object.defineProperty(state, 'state', { value: state })
+window.handlers = {}
 
-    // magic
-    for (const key in methods) {
-      const method = methods[key]
+class VElement {
+  constructor (Class, ref = {}, closure = {}) {
+    const self = this
 
-      if (key[0] !== '_') { // not a private method
-        const eventHandler = function (event, ...args) {
-          Object.entries(this.methods).forEach(([ name, value ]) => {
-            Object.defineProperty(this.state, name, { value, writable: true })
-          })
+    this.instance = new Class(ref)
+    this.ref = ref
 
-          const result = method.call(this.state, event, ...args)
+    this.proxy = new Proxy(this, {
+      get (obj, prop) {
+        let value =
+          prop in self.instance ? self.instance[prop] :
+          prop in closure ? closure[prop] :
+          prop in ref ? ref[prop] :
+          obj[prop]
 
-          if (result === false) return
+        if (typeof value === 'function') {
+          const method = value
+          const handlerId = `${ prop }${ handlerIdIncrement++ }`
+          const handler = (el) => {
+            // NOTE: we could also use self.proxy and a
+            // currentElement=el variable to save proxy instances
+            // but it will fail in async operations
+            const handlerProxy = new Proxy(el, {
+              get (obj, prop) {
+                let value
+                if (prop === 'el') return el
+                if (prop in el) {
+                  value = el[prop]
+                  if (typeof value === 'function') {
+                    return value.bind(el)
+                  } else {
+                    return value
+                  }
+                }
+                return self.proxy[prop]
+              },
+              set (obj, prop, value) {
+                if (prop in el) {
+                  el[prop] = value
+                } else {
+                  ref[prop] = value
+                }
+                return true
+              }
+            })
 
-          const renderEvent = new CustomEvent('render', {
-            detail: { key, event, args }
-          })
+            return (...args) => {
+              let result = method.apply(handlerProxy, args)
+              if (result === false) return false
+              if (result instanceof Promise) {
+                return result.then(() => self.render()).then(() => result)
+              } else {
+                self.render()
+                return result
+              }
+            }
+          }
 
-          document.dispatchEvent(renderEvent)
-        }.bind(this)
-        const eventHandlerId = `eventHandler${eventHandlerIdIncrement++}`
-        window[eventHandlerId] = this.methods[key] = eventHandler
-        eventHandler.toString = () => eventHandlerId
-      } else {
-        this.methods[key] = method
+          window.handlers[handlerId] = handler
+          handler.toString = () => `handlers['${ handlerId }'](this)`
+          value = function handlerfn (...args) { return handler(this).apply(this, args) }
+          value.toString = handler.toString
+        }
+
+        return value
       }
-    }
+    })
   }
 
-  toString () {
-    return this.html(this.state, this.methods).trim().replace(/(>)(\s+)|(\s+)(<\/)/g, '$1$4')
+  render () {
+    const renderEvent = new CustomEvent('render')
+    document.dispatchEvent(renderEvent)
+  }
+
+  toString (top) {
+    if (top) window.handlers = {}
+    return this.instance.template.call(this.proxy).trim().replace(/(>)(\s+)/g, '$1$2')
+    // return this.instance.template.call(this.proxy).trim().replace(/(>)(\s+)|(\s+)(<\/)/g, '$1$4')
   }
 }
 
 window.$ = function $ (...args) {
-  return new Element(...args)
+  return new VElement(...args)
 }
 
 $.map = (array, fn) => array.map(fn).join('')
 $.class = (object) => Object.keys(object).filter(key => !!object[key]).join(' ')
-
-// TODO:
-// async methods (vs _private? return false?)
-// computed values (getters?)
-// reuse handlers (lookup table by ref)

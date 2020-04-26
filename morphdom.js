@@ -1,15 +1,23 @@
+'use strict';
+
+var DOCUMENT_FRAGMENT_NODE = 11;
+
 function morphAttrs(fromNode, toNode) {
-    var attrs = toNode.attributes;
-    var i;
+    var toNodeAttrs = toNode.attributes;
     var attr;
     var attrName;
     var attrNamespaceURI;
     var attrValue;
     var fromValue;
 
+    // document-fragments dont have attributes so lets not do anything
+    if (toNode.nodeType === DOCUMENT_FRAGMENT_NODE || fromNode.nodeType === DOCUMENT_FRAGMENT_NODE) {
+      return;
+    }
+
     // update attributes on original DOM element
-    for (i = attrs.length - 1; i >= 0; --i) {
-        attr = attrs[i];
+    for (var i = toNodeAttrs.length - 1; i >= 0; i--) {
+        attr = toNodeAttrs[i];
         attrName = attr.name;
         attrNamespaceURI = attr.namespaceURI;
         attrValue = attr.value;
@@ -19,6 +27,9 @@ function morphAttrs(fromNode, toNode) {
             fromValue = fromNode.getAttributeNS(attrNamespaceURI, attrName);
 
             if (fromValue !== attrValue) {
+                if (attr.prefix === 'xmlns'){
+                    attrName = attr.name; // It's not allowed to set an attribute with the XMLNS namespace without specifying the `xmlns` prefix
+                }
                 fromNode.setAttributeNS(attrNamespaceURI, attrName, attrValue);
             }
         } else {
@@ -32,24 +43,22 @@ function morphAttrs(fromNode, toNode) {
 
     // Remove any extra attributes found on the original DOM element that
     // weren't found on the target element.
-    attrs = fromNode.attributes;
+    var fromNodeAttrs = fromNode.attributes;
 
-    for (i = attrs.length - 1; i >= 0; --i) {
-        attr = attrs[i];
-        if (attr.specified !== false) {
-            attrName = attr.name;
-            attrNamespaceURI = attr.namespaceURI;
+    for (var d = fromNodeAttrs.length - 1; d >= 0; d--) {
+        attr = fromNodeAttrs[d];
+        attrName = attr.name;
+        attrNamespaceURI = attr.namespaceURI;
 
-            if (attrNamespaceURI) {
-                attrName = attr.localName || attrName;
+        if (attrNamespaceURI) {
+            attrName = attr.localName || attrName;
 
-                if (!toNode.hasAttributeNS(attrNamespaceURI, attrName)) {
-                    fromNode.removeAttributeNS(attrNamespaceURI, attrName);
-                }
-            } else {
-                if (!toNode.hasAttribute(attrName)) {
-                    fromNode.removeAttribute(attrName);
-                }
+            if (!toNode.hasAttributeNS(attrNamespaceURI, attrName)) {
+                fromNode.removeAttributeNS(attrNamespaceURI, attrName);
+            }
+        } else {
+            if (!toNode.hasAttribute(attrName)) {
+                fromNode.removeAttribute(attrName);
             }
         }
     }
@@ -59,6 +68,30 @@ var range; // Create a range object for efficently rendering strings to elements
 var NS_XHTML = 'http://www.w3.org/1999/xhtml';
 
 var doc = typeof document === 'undefined' ? undefined : document;
+var HAS_TEMPLATE_SUPPORT = !!doc && 'content' in doc.createElement('template');
+var HAS_RANGE_SUPPORT = !!doc && doc.createRange && 'createContextualFragment' in doc.createRange();
+
+function createFragmentFromTemplate(str) {
+    var template = doc.createElement('template');
+    template.innerHTML = str;
+    return template.content.childNodes[0];
+}
+
+function createFragmentFromRange(str) {
+    if (!range) {
+        range = doc.createRange();
+        range.selectNode(doc.body);
+    }
+
+    var fragment = range.createContextualFragment(str);
+    return fragment.childNodes[0];
+}
+
+function createFragmentFromWrap(str) {
+    var fragment = doc.createElement('body');
+    fragment.innerHTML = str;
+    return fragment.childNodes[0];
+}
 
 /**
  * This is about the same
@@ -69,19 +102,17 @@ var doc = typeof document === 'undefined' ? undefined : document;
  * @param {String} str
  */
 function toElement(str) {
-    if (!range && doc.createRange) {
-        range = doc.createRange();
-        range.selectNode(doc.body);
+    str = str.trim();
+    if (HAS_TEMPLATE_SUPPORT) {
+      // avoid restrictions on content for things like `<tr><th>Hi</th></tr>` which
+      // createContextualFragment doesn't support
+      // <template> support not available in IE
+      return createFragmentFromTemplate(str);
+    } else if (HAS_RANGE_SUPPORT) {
+      return createFragmentFromRange(str);
     }
 
-    var fragment;
-    if (range && range.createContextualFragment) {
-        fragment = range.createContextualFragment(str);
-    } else {
-        fragment = doc.createElement('body');
-        fragment.innerHTML = str;
-    }
-    return fragment.childNodes[0];
+    return createFragmentFromWrap(str);
 }
 
 /**
@@ -200,7 +231,7 @@ var specialElHandlers = {
     TEXTAREA: function(fromEl, toEl) {
         var newValue = toEl.value;
         if (fromEl.value !== newValue) {
-            // fromEl.value = newValue; MODIFIED
+            fromEl.value = newValue;
         }
 
         var firstChild = fromEl.firstChild;
@@ -254,14 +285,16 @@ var specialElHandlers = {
 };
 
 var ELEMENT_NODE = 1;
-var DOCUMENT_FRAGMENT_NODE = 11;
+var DOCUMENT_FRAGMENT_NODE$1 = 11;
 var TEXT_NODE = 3;
 var COMMENT_NODE = 8;
 
 function noop() {}
 
 function defaultGetNodeKey(node) {
-    return node.id;
+  if (node) {
+      return (node.getAttribute && node.getAttribute('id')) || node.id;
+  }
 }
 
 function morphdomFactory(morphAttrs) {
@@ -272,7 +305,7 @@ function morphdomFactory(morphAttrs) {
         }
 
         if (typeof toNode === 'string') {
-            if (fromNode.nodeName === '#document' || fromNode.nodeName === 'HTML') {
+            if (fromNode.nodeName === '#document' || fromNode.nodeName === 'HTML' || fromNode.nodeName === 'BODY') {
                 var toNodeHtml = toNode;
                 toNode = doc.createElement('html');
                 toNode.innerHTML = toNodeHtml;
@@ -292,15 +325,11 @@ function morphdomFactory(morphAttrs) {
         var childrenOnly = options.childrenOnly === true;
 
         // This object is used as a lookup to quickly find all keyed elements in the original DOM tree.
-        var fromNodesLookup = {};
-        var keyedRemovalList;
+        var fromNodesLookup = Object.create(null);
+        var keyedRemovalList = [];
 
         function addKeyedRemoval(key) {
-            if (keyedRemovalList) {
-                keyedRemovalList.push(key);
-            } else {
-                keyedRemovalList = [key];
-            }
+            keyedRemovalList.push(key);
         }
 
         function walkDiscardedChildNodes(node, skipKeyedNodes) {
@@ -379,7 +408,7 @@ function morphdomFactory(morphAttrs) {
         // }
 
         function indexTree(node) {
-            if (node.nodeType === ELEMENT_NODE || node.nodeType === DOCUMENT_FRAGMENT_NODE) {
+            if (node.nodeType === ELEMENT_NODE || node.nodeType === DOCUMENT_FRAGMENT_NODE$1) {
                 var curChild = node.firstChild;
                 while (curChild) {
                     var key = getNodeKey(curChild);
@@ -407,6 +436,8 @@ function morphdomFactory(morphAttrs) {
                 var key = getNodeKey(curChild);
                 if (key) {
                     var unmatchedFromEl = fromNodesLookup[key];
+                    // if we find a duplicate #id node in cache, replace `el` with cache value
+                    // and morph it to the child node.
                     if (unmatchedFromEl && compareNodeNames(curChild, unmatchedFromEl)) {
                         curChild.parentNode.replaceChild(unmatchedFromEl, curChild);
                         morphEl(unmatchedFromEl, curChild);
@@ -446,10 +477,6 @@ function morphdomFactory(morphAttrs) {
                 delete fromNodesLookup[toElKey];
             }
 
-            if (toNode.isSameNode && toNode.isSameNode(fromNode)) {
-                return;
-            }
-
             if (!childrenOnly) {
                 // optional
                 if (onBeforeElUpdated(fromEl, toEl) === false) {
@@ -465,6 +492,7 @@ function morphdomFactory(morphAttrs) {
                     return;
                 }
             }
+
             if (fromEl.nodeName !== 'TEXTAREA') {
               morphChildren(fromEl, toEl);
             } else {
@@ -677,6 +705,10 @@ function morphdomFactory(morphAttrs) {
             // toss out the "from node" and use the "to node"
             onNodeDiscarded(fromNode);
         } else {
+            if (toNode.isSameNode && toNode.isSameNode(morphedNode)) {
+                return;
+            }
+
             morphEl(morphedNode, toNode, childrenOnly);
 
             // We now need to loop over any keyed nodes that might need to be
@@ -712,4 +744,4 @@ function morphdomFactory(morphAttrs) {
 
 var morphdom = morphdomFactory(morphAttrs);
 
-export default morphdom;
+window.morphdom = morphdom;

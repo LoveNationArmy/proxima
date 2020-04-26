@@ -305,7 +305,7 @@ tryOffer = async () => {
 }
 maxNOfPeers = 5
 repeatSecs = 10
-randSecs = () => Math.random() * (1 + peers.length ** 3)
+randSecs = () => Math.random() * (5 + peers.length ** 5)
 ifPeersLessThan = (n) => peers.length < n ? Promise.resolve() : Promise.reject(new Error('Peers max'))
 repeatOffer = () => tryOffer().finally(() => ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(repeatOffer))
 repeatAnswer = () => tryAnswer().finally(() => ifPeersLessThan(maxNOfPeers).then(waitFor(randSecs())).then(repeatAnswer))
