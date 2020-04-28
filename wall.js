@@ -69,6 +69,7 @@ class ChatArea {
       } else {
         event.preventDefault()
         this.createPost()
+        return false
       }
     } else {
       return false
