@@ -132,20 +132,20 @@ createRtcOffer = () => new Promise((resolve, reject) => {
   peer.onnegotiationneeded = async e => {
     // console.log('on negotiation needed', e)
     const d = await peer.createOffer()
+    // remove trickle
+    d.sdp = d.sdp.replace(/a=ice-options:trickle\s\n/g, '')
     // console.log('local description', d)
     await peer.setLocalDescription(d)
     timeout = setTimeout(() => {
       console.error('offer ice candidate missing, sending local description')
-      resolve([peer, JSON.stringify([peer.localDescription, ...data])])
+      resolve([peer, JSON.stringify(peer.localDescription)])
     }, 15000)
   }
 
   peer.onicecandidate = async e => {
-    if (e.candidate) {
-      data.push(e.candidate)
-    } else {
+    if (!e.candidate) {
       clearTimeout(timeout)
-      resolve([peer, JSON.stringify([peer.localDescription, ...data])])
+      resolve([peer, JSON.stringify(peer.localDescription)])
     }
   }
 })
@@ -170,25 +170,22 @@ createRtcAnswer = async d => {
   const promise = new Promise((resolve, reject) => {
     timeout = setTimeout(() => {
       console.error('answer ice candidate missing, sending local description')
-      resolve([peer, JSON.stringify([peer.localDescription, ...data])])
+      resolve([peer, JSON.stringify(peer.localDescription)])
     }, 20000)
     peer.oniceconnectionstatechange = ({ iceConnectionState: i }) =>
       i === 'disconnected' && reject()
     peer.onicecandidate = async e => {
-      if (e.candidate) {
-        data.push(e.candidate)
-      } else {
+      if (!e.candidate) {
         clearTimeout(timeout)
-        resolve([peer, JSON.stringify([peer.localDescription, ...data])])
+        resolve([peer, JSON.stringify(peer.localDescription)])
       }
     }
   })
 
-  await peer.setRemoteDescription(rd[0])
-  for (var i = 1; i < rd.length; i++) {
-    await peer.addIceCandidate(rd[i])
-  }
+  await peer.setRemoteDescription(rd)
   ld = await peer.createAnswer()
+  // remove trickle
+  ld.sdp = ld.sdp.replace(/a=ice-options:trickle\s\n/g, '')
   await peer.setLocalDescription(ld)
 
   return promise
@@ -287,10 +284,7 @@ tryOffer = async () => {
       throw new Error('Offer timed out.')
     }
     // console.log('received answer', rd)
-    peer.setRemoteDescription(rd[0])
-    for (var i = 1; i < rd.length; i++) {
-      await peer.addIceCandidate(rd[i])
-    }
+    peer.setRemoteDescription(rd)
     await setupChannel(peer)
     peer.cid = cid
     peers.push(peer)
