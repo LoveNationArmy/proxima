@@ -1,16 +1,7 @@
-const peer = rtc.createPeer()
-const offer = await peer.createOffer('data')
-const answer = await sendOffer(offer)
-const channel = await offer.processAnswer(answer)
+import Peer from './peer.js'
+import * as serverSignal from './server-signal.js'
 
-//
-const offer = await receiveOffer()
-const peer = rtc.createPeer()
-const answer = await peer.createAnswer(offer)
-await sendAnswer(answer)
-const channel = await peer.connect()
-
-async function connect () {
+export default function connect () {
   makeOffers()
   makeAnswers()
 }
@@ -37,48 +28,51 @@ async function makeAnswers () {
 
 async function createPeer (type, handshake) {
   const peer = new Peer()
+  try {
+    switch (type) {
+      case 'offer':
+        // public/private key generated on init
+        // peer broadcasts public key
+        // other peers use public key to encrypt a message(offer) to be whispered
+        // only peer with private key can decrypt the message
+        // channel.offer should contain an id known only to this peer
+        // so that we can use it to delete the offer on completion/failure
+        await peer.connect(await handshake(await peer.open()))
+        break
 
-  switch (type) {
-    case 'offer':
-      // public/private key generated on init
-      // peer broadcasts public key
-      // other peers use public key to encrypt a message(offer) to be whispered
-      // only peer with private key can decrypt the message
-      // channel.offer should contain an id known only to this peer
-      // so that we can use it to delete the offer on completion/failure
-      await peer.connect(await handshake(await peer.open('data')))
-      break
-
-    case 'answer':
-      await handshake(await peer.open(await handshake()))
-      await peer.connect()
-      break
+      case 'answer':
+        await handshake(await peer.open(await handshake()))
+        await peer.connect()
+        break
+    }
+    return peer
+  } catch (error) {
+    peer.close()
+    throw error
   }
-
-  return peer
 }
 
 async function serverHandshake (signal) {
   if (signal) {
     switch (signal.type) {
       case 'offer':
+        const offer = await serverSignal.sendOffer(signal)
         try {
-          // send offer signal
-          // await for answer signal and examine unique id
+          const answer = await serverSignal.waitForAnswer(offer)
+          return answer
         } catch (error) {
-          // delete offer signal using private key
-          // rethrow
+          await serverSignal.deleteOffer(offer)
+          throw error
         }
-        // return answer signal
         break
+
       case 'answer':
-        // send answer signal
+        await serverSignal.sendAnswer(signal)
         break
     }
   } else {
-    // ask server for offer candidates if not any
-    // get next offer
-    // return offer signal
+    const offer = await serverSignal.getNextOffer()
+    return offer
   }
 }
 
@@ -105,16 +99,16 @@ async function swarmHandshake (signal) {
 }
 
 
-loop: for await (const event of channel.event()) {
-  switch (event.type) {
-    case 'open':
-      //
-      break loop
-    case 'close':
-      //
-      break loop
-    case 'message':
-      //
-      break
-  }
-}
+// loop: for await (const event of channel.event()) {
+//   switch (event.type) {
+//     case 'open':
+//       //
+//       break loop
+//     case 'close':
+//       //
+//       break loop
+//     case 'message':
+//       //
+//       break
+//   }
+// }
