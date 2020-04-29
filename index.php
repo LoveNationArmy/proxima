@@ -15,19 +15,7 @@
       $accept = explode(',', $_SERVER['HTTP_ACCEPT'])[0];
       if ($accept === 'text/html' || $accept === '*/*') {
         // TODO: generate asymetric encryption tokens based on email + pass + secret?
-        ?><!doctype html>
-<html>
-  <head>
-    <meta charset="utf8">
-    <title>proxima</title>
-    <style>{INSERT_STYLE}</style>
-  </head>
-  <body>
-    <div id="container"></div>
-    <script>localStorage.token = window.token = localStorage.token || '<?php echo bin2hex(random_bytes(16)) ?>'</script>
-    <script>{INSERT_SCRIPT}</script>
-  </body>
-</html><?php
+        include 'main.html';
       } else if ($accept === 'application/json') {
         header('Content-Type: application/json');
         $token = explode(' ', apache_request_headers()['Authorization'])[1];

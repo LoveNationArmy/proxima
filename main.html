@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf8">
+    <title>proxima</title>
+    <link rel="stylesheet" href="./main.css">
+  </head>
+  <body>
+    <div id="container"></div>
+    <script>localStorage.token = window.token = localStorage.token || '<?php echo bin2hex(random_bytes(16)) ?>'</script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

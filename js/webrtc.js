@@ -57,13 +57,8 @@ async function serverHandshake (signal) {
     switch (signal.type) {
       case 'offer':
         const offer = await serverSignal.sendOffer(signal)
-        try {
-          const answer = await serverSignal.waitForAnswer(offer)
-          return answer
-        } catch (error) {
-          await serverSignal.deleteOffer(offer)
-          throw error
-        }
+        const answer = await serverSignal.waitForAnswer(offer)
+        return answer
         break
 
       case 'answer':
