@@ -7,6 +7,8 @@ const OPTIONS = {
 export default class Peer {
   constructor (opts = OPTIONS) {
     this.connection = new RTCPeerConnection(opts)
+    this.connected = false
+    this.data = new Set
   }
 
   open (offer) {
