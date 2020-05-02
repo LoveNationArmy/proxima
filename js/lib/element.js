@@ -86,9 +86,11 @@ class VElement {
   }
 }
 
-window.$ = function $ (...args) {
+const $ = function $ (...args) {
   return new VElement(...args)
 }
 
 $.map = (array, fn) => array.map(fn).join('')
 $.class = (object) => Object.keys(object).filter(key => !!object[key]).join(' ')
+
+export default $

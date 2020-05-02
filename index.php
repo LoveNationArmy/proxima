@@ -35,7 +35,15 @@
             exit(1);
           }
         } else {
-          $offers = array_slice(scandir($datadir . 'offers'), 2);
+          $cid = substr($token, -5);
+          $not = explode(',', $_GET['not']);
+          array_push($not, $cid);
+          $offers = array_reverse(array_slice(scandir($datadir . 'offers'), 2));
+          $offers = array_filter($offers, function ($v) {
+            global $not;
+            $offer_cid = array_pop(explode('.', $v));
+            return !in_array($offer_cid, $not);
+          });
           if (!$offers) {
             http_response_code(404);
             exit(1);
@@ -69,7 +77,10 @@
     case 'POST':
       header('Content-Type: application/json');
       $token = explode(' ', apache_request_headers()['Authorization'])[1];
-      if (!$token) exit(1);
+      if (!$token) {
+        http_response_code(401); // Unauthorized
+        exit(1);
+      }
 
       $cid = substr($token, -5);
       $signal = $_POST;

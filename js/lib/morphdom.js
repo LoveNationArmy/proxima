@@ -744,4 +744,4 @@ function morphdomFactory(morphAttrs) {
 
 var morphdom = morphdomFactory(morphAttrs);
 
-window.morphdom = morphdom;
+export default morphdom;

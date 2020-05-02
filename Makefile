@@ -22,7 +22,7 @@ build:
 			-i dist.php
 
 dev:
-	@live-server --entry-file=main.html
+	@live-server --ignorePattern=signals --entry-file=main.html
 
 clean:
 	rm -rf signals/offers/*
