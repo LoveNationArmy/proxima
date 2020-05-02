@@ -43,23 +43,28 @@ export default class App {
   }
 
   render () {
-    console.log(this.state.data, this.net.peers)
     const html = this.ui.toString(true)
     morphdom(this.el, html, {
       onNodeAdded: this.onrender,
-      onElUpdated: this.onrender
+      onElUpdated: this.onrender,
+      onAfterElUpdated: this.onrender
     })
   }
 }
 
 class UI {
+  constructor () {
+    this.isBottom = true
+  }
+
   template () {
     const view = this.state.view
     const channel = view.channels.get('#garden')
+    prevUser = null
     return `
       <div class="app">
-        <div class="main">
-          ${ $(ChatArea, { channel: view.channels.get('#garden'), view, app: this.app, state: this.state }) }
+        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
+          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
         </div>
         <div class="side">
           <div class="peers">
@@ -69,23 +74,36 @@ class UI {
       </div>
     `
   }
+
+  checkScrollBottom () {
+    this.isBottom = Math.round(this.scrollTop + this.clientHeight) >= this.scrollHeight - 50
+    return false
+  }
+
+  scrollToBottom () {
+    if (this.isBottom) this.scrollTop = this.scrollHeight
+    return false
+  }
 }
 
 class ChatArea {
   template () {
+    const view = this.view
+    const channel = this.view.channels.get(this.target)
     return `
       <div class="chatarea">
         <div class="wall">
-          ${ this.channel ? $.map(this.channel.wall, msg => `<div>${this.view.nicks.get(msg.cid) || msg.cid}: ${msg.text}</div>`) : ''}
+          ${ channel ? $.map(channel.wall, post => $(Post, post, { view })) : ''}
         </div>
         <div class="chatbar">
-          <div class="nick">${ this.view.nicks.get(this.app.net.cid) }</div>
+          <div class="nick">${ view.nicks.get(this.app.net.cid) }</div>
           <textarea
             class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
             onkeydown="${ this.processKeyDown }(event)"
             oninput="${ this.processInput }()"
             rows=${ this.state.textareaRows }>${ this.state.newPost }</textarea>
           <button onclick="${ this.createPost }()">send</button>
+          <div class="target">${this.target}</div>
         </div>
       </div>
     `
@@ -123,11 +141,42 @@ class ChatArea {
       this.state.newPost.split('\n').length,
       Math.floor(this.scrollHeight / (parseFloat(computed.lineHeight)))
     )
-    this.el.parentNode.scrollTop = this.el.parentNode.scrollHeight
     if (newRows === rows) return false
     this.state.textareaRows = newRows
   }
 }
+
+let prevUser, prevTime
+
+class Post {
+  // ({ meta, user, time, text, replies = [] }) => `
+  template () {
+    const lastPrevUser = prevUser
+    const lastPrevTime = lastPrevUser !== this.cid ? 0 : prevTime
+    prevUser = this.cid
+    prevTime = parseInt(this.time)
+    return `
+      <br>
+      <div class="post">
+        ${ lastPrevUser !== this.cid ? `<a class="user" href="/#~${this.cid}">${htmlescape(this.view.nicks.get(this.cid))}:</a>` : `` }
+        ${ prevTime - lastPrevTime > 1000 * 60 ? `
+        <info>
+          <!-- <time>${new Date(+this.time).toLocaleString()}</time> -->
+          <a href="#">reply</a>
+        </info>` : '' }
+        <p class="${ this.text.includes('\n') ? 'pre' : '' }">${htmlescape(this.text, this.text.includes('\n'))}</p>
+        ${ $.map(this.replies || [], post => $(Post, { view: this.view, ...post })) }
+      </div>
+    `
+  }
+}
+
+function htmlescape (text, initialSpace) {
+  text = text.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+  if (initialSpace) text = text.replace(/ /,'&nbsp;')
+  return text
+}
+
         // ${ this.privateOpen ? `
         //   <div class="private">
         //     ${ $(ChatArea, this.private[this.privatePeer.cid]) }

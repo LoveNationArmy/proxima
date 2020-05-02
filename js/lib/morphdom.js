@@ -319,6 +319,7 @@ function morphdomFactory(morphAttrs) {
         var onNodeAdded = options.onNodeAdded || noop;
         var onBeforeElUpdated = options.onBeforeElUpdated || noop;
         var onElUpdated = options.onElUpdated || noop;
+        var onAfterElUpdated = options.onAfterElUpdated || noop;
         var onBeforeNodeDiscarded = options.onBeforeNodeDiscarded || noop;
         var onNodeDiscarded = options.onNodeDiscarded || noop;
         var onBeforeElChildrenUpdated = options.onBeforeElChildrenUpdated || noop;
@@ -497,6 +498,10 @@ function morphdomFactory(morphAttrs) {
               morphChildren(fromEl, toEl);
             } else {
               specialElHandlers.TEXTAREA(fromEl, toEl);
+            }
+
+            if (!childrenOnly) {
+                onAfterElUpdated(fromEl);
             }
         }
 
