@@ -16,10 +16,7 @@ export default class State {
       app.net.format('msg:#garden', 'hello')
     ])
     this.newPost = ''
-  }
-
-  get textareaRows () {
-    return this.newPost.split('\n').length
+    this.textareaRows = 1
   }
 
   get merged () {

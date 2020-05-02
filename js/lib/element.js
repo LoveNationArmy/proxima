@@ -65,7 +65,7 @@ class VElement {
 
           window.handlers[handlerId] = handler
           handler.toString = () => `handlers['${ handlerId }'](this)`
-          value = function handlerfn (...args) { return handler(this).apply(this, args) }
+          value = function handlerfn (...args) { return handler(this.el).apply(this, args) }
           value.toString = handler.toString
         }
 

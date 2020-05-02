@@ -25,16 +25,21 @@ export default class Net extends EventTarget {
   }
 
   async addPeer (peer) {
+    let msg
     this.peers.push(peer)
-    this.app.state.data.add(peer.format('join', '#garden'))
+    msg = peer.format('join', '#garden')
+    this.app.state.data.add(msg)
+    this.broadcast([msg], peer)
     peer.send(this.app.state.merged)
     emit(this, 'peer', peer)
     for await (const { detail: data } of on(peer, 'data', 'close')) {
       this.broadcast(data, peer)
       emit(this, 'data', { data, peer })
     }
-    this.app.state.data.add(peer.format('part', '#garden'))
     this.peers.splice(this.peers.indexOf(peer), 1)
+    msg = peer.format('part', '#garden')
+    this.app.state.data.add(msg)
+    this.broadcast([msg], peer)
     emit(this, 'peer', peer)
   }
 

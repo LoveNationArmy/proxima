@@ -43,6 +43,7 @@ export default class App {
   }
 
   render () {
+    console.log(this.state.data, this.net.peers)
     const html = this.ui.toString(true)
     morphdom(this.el, html, {
       onNodeAdded: this.onrender,
@@ -83,7 +84,6 @@ class ChatArea {
             class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
             onkeydown="${ this.processKeyDown }(event)"
             oninput="${ this.processInput }()"
-            onrender="this.focus()"
             rows=${ this.state.textareaRows }>${ this.state.newPost }</textarea>
           <button onclick="${ this.createPost }()">send</button>
         </div>
@@ -95,13 +95,16 @@ class ChatArea {
     if (!this.state.newPost.length) return
     this.app.dispatch('msg:#garden', this.state.newPost)
     this.state.newPost = ''
+    this.state.textareaRows = 1
   }
 
   processKeyDown (event) {
     if (event.which === 13) {
       if (event.ctrlKey === true) {
-        this.value += '\n'
+        const pos = this.selectionStart
+        this.value = this.value.slice(0, pos) + '\n' + this.value.slice(pos)
         this.processInput()
+        this.selectionStart = this.selectionEnd = pos + 1
       } else {
         event.preventDefault()
         this.createPost()
@@ -114,10 +117,15 @@ class ChatArea {
 
   processInput (arg) {
     const rows = this.state.textareaRows
-    const newRows = this.value.split('\n').length
     this.state.newPost = this.value
-    this.el.scrollTop = this.el.scrollHeight
-    if (rows === newRows) return false
+    const computed = window.getComputedStyle(this.el)
+    const newRows = Math.max(
+      this.state.newPost.split('\n').length,
+      Math.floor(this.scrollHeight / (parseFloat(computed.lineHeight)))
+    )
+    this.el.parentNode.scrollTop = this.el.parentNode.scrollHeight
+    if (newRows === rows) return false
+    this.state.textareaRows = newRows
   }
 }
         // ${ this.privateOpen ? `

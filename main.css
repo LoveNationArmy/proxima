@@ -15,10 +15,11 @@ html, body, #container {
 
 textarea {
   font: inherit;
+  line-height: 11pt;
 }
 
 .pre {
-  white-space: pre;
+  white-space: pre-line;
   font-family: monospace;
   font-size: 12px;
 }
