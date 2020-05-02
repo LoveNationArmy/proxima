@@ -1,6 +1,7 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import Peer from './peer.js'
+import { formatter } from './parse.js'
 import * as http from './signal-http.js'
 
 const OPTIONS = {
@@ -8,10 +9,13 @@ const OPTIONS = {
 }
 
 export default class Net extends EventTarget {
-  constructor (opts = OPTIONS) {
+  constructor (app, opts = OPTIONS) {
     super()
+    this.cid = window.token.slice(-5)
+    this.app = app
     this.opts = opts
     this.peers = []
+    this.format = formatter(this.cid)
   }
 
   async connect () {
@@ -22,21 +26,20 @@ export default class Net extends EventTarget {
 
   async addPeer (peer) {
     this.peers.push(peer)
+    this.app.state.data.add(peer.format('join', '#garden'))
+    peer.send(this.app.state.merged)
     emit(this, 'peer', peer)
-    this.listen(peer)
-
-    peer.channel.send(`${Date.now()}\t${this.cid}\t${Math.random()}\t/msg #garden hello`)
-
-    await once(peer, 'close')
-
+    for await (const { detail: data } of on(peer, 'data', 'close')) {
+      this.broadcast(data, peer)
+      emit(this, 'data', { data, peer })
+    }
+    this.app.state.data.add(peer.format('part', '#garden'))
     this.peers.splice(this.peers.indexOf(peer), 1)
     emit(this, 'peer', peer)
   }
 
-  async listen (peer) {
-    for await (const { detail: data } of peer.data) {
-      emit(this, 'data', { data, peer })
-    }
+  async broadcast (data, peer) {
+    this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data))
   }
 
   async lessThanMaxPeers () {

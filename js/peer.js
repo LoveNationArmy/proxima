@@ -1,6 +1,7 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import copy from './lib/copy.js'
+import { formatter, lines, merge } from './parse.js'
 
 const OPTIONS = {
   iceServers: []
@@ -10,6 +11,7 @@ export default class Peer extends EventTarget {
   constructor (opts = OPTIONS) {
     super()
     this.cid = null
+    this.data = new Set()
     this.connected = false
     this.connection = new RTCPeerConnection(opts)
   }
@@ -17,8 +19,13 @@ export default class Peer extends EventTarget {
   close () {
     this.connected = false
     this.connection.close()
-    if (this.data) this.data.end()
+    if (this.messages) this.messages.end()
     emit(this, 'close')
+  }
+
+  send (data) {
+    const chunk = merge(this.data, data)
+    if (chunk.size) this.channel.send([...chunk].join('\r\n'))
   }
 
   async createOffer () {
@@ -50,11 +57,15 @@ export default class Peer extends EventTarget {
 
   async openChannel (channel) {
     this.channel = channel
-    this.data = on(this.channel, 'message', 'close')
+    this.messages = on(this.channel, 'message', 'close')
     await once(this.channel, 'open')
+    this.format = formatter(this.cid)
     this.connected = true
     emit(this, 'open')
-    await once(this.channel, 'close')
+    for await (const { data } of this.messages) {
+      const chunk = merge(this.data, [data])
+      if (chunk.size) emit(this, 'data', chunk)
+    }
     this.close()
   }
 }

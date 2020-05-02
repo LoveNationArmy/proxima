@@ -7,32 +7,20 @@ import Net from './net.js'
 export default class App {
   constructor (el) {
     this.el = el
-    this.setState(new State(this.load()))
-    this.net = new Net()
-    this.net.cid = this.state.cid
-    this.state.peers = this.net.peers
+    this.app = this
+    this.net = new Net(this)
+    this.state = new State(this, this.load())
+    this.ui = $(UI, this)
     this.net.addEventListener('peer', () => this.render())
-    this.net.addEventListener('message', ({ detail: { data, peer } }) => {
-      this.state.data.push(data + ' from ' + peer.cid)
-      this.render()
-    })
+    this.net.addEventListener('data', () => this.render())
     document.addEventListener('render', () => this.render())
   }
 
-  setState (state) {
-    this.state = state
-    this.ui = $(UI, this.state, { app: this })
-  }
-
-  dispatch (message) {
-    const msg = [
-      performance.timeOrigin + performance.now(),
-      this.state.cid,
-      randomId(),
-      message
-    ].join('\t')
-    this.state.data.push(msg)
-    this.net.peers.forEach(peer => peer.channel.send(msg))
+  dispatch (...message) {
+    message = this.net.format(...message)
+    console.log('dispatch', message)
+    this.state.data.add(message)
+    this.net.broadcast([message], this.net)
     // this.dispatchEvent(new CustomEvent('data', { detail: data }))
   }
 
@@ -41,7 +29,7 @@ export default class App {
   }
 
   save () {
-    localStorage.data = this.state.data.join('\r\n')
+    localStorage.data = [...this.state.data].join('\r\n')
   }
 
   onrender (el) {
@@ -55,7 +43,6 @@ export default class App {
   }
 
   render () {
-    console.log('render', this.state)
     const html = this.ui.toString(true)
     morphdom(this.el, html, {
       onNodeAdded: this.onrender,
@@ -66,14 +53,16 @@ export default class App {
 
 class UI {
   template () {
+    const view = this.state.view
+    const channel = view.channels.get('#garden')
     return `
       <div class="app">
         <div class="main">
-          ${ $(ChatArea, this.ref, { app: this.app }) }
+          ${ $(ChatArea, { channel: view.channels.get('#garden'), view, app: this.app, state: this.state }) }
         </div>
         <div class="side">
           <div class="peers">
-            ${ $.map(this.peers, peer => `<div>${peer.cid}</div>`) }
+            ${ channel ? $.map([...channel.users], cid => `<div>${view.nicks.get(cid) || cid}</div>`) : '' }
           </div>
         </div>
       </div>
@@ -86,15 +75,16 @@ class ChatArea {
     return `
       <div class="chatarea">
         <div class="wall">
-          ${ $.map(this.wall, msg => `<div>${msg.text}</div>`) }
+          ${ this.channel ? $.map(this.channel.wall, msg => `<div>${this.view.nicks.get(msg.cid) || msg.cid}: ${msg.text}</div>`) : ''}
         </div>
         <div class="chatbar">
+          <div class="nick">${ this.view.nicks.get(this.app.net.cid) }</div>
           <textarea
-            class="${ $.class({ pre: this.textareaRows > 1 }) }"
+            class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
             onkeydown="${ this.processKeyDown }(event)"
             oninput="${ this.processInput }()"
             onrender="this.focus()"
-            rows=${ this.textareaRows }>${ this.newPost }</textarea>
+            rows=${ this.state.textareaRows }>${ this.state.newPost }</textarea>
           <button onclick="${ this.createPost }()">send</button>
         </div>
       </div>
@@ -102,9 +92,9 @@ class ChatArea {
   }
 
   createPost () {
-    if (!this.newPost.length) return
-    this.app.dispatch(this.newPost)
-    this.newPost = ''
+    if (!this.state.newPost.length) return
+    this.app.dispatch('msg:#garden', this.state.newPost)
+    this.state.newPost = ''
   }
 
   processKeyDown (event) {
@@ -123,9 +113,9 @@ class ChatArea {
   }
 
   processInput (arg) {
-    const rows = this.textareaRows
+    const rows = this.state.textareaRows
     const newRows = this.value.split('\n').length
-    this.newPost = this.value
+    this.state.newPost = this.value
     this.el.scrollTop = this.el.scrollHeight
     if (rows === newRows) return false
   }
