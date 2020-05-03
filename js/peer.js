@@ -14,6 +14,14 @@ export default class Peer extends EventTarget {
     this.data = new Set()
     this.connected = false
     this.connection = new RTCPeerConnection(opts)
+    this.connection.onconnectionstatechange = () => {
+      switch (this.connection.connectionState) {
+        case 'disconnected':
+        case 'failed':
+        case 'closed':
+          this.close()
+      }
+    }
   }
 
   close () {
