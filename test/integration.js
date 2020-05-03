@@ -27,11 +27,17 @@ describe('send offer', () => {
 })
 
 describe('get next offer', () => {
-  it('should respond with object item', async () => {
+  it('should respond with not found with same bearer', async () => {
+    const response = await fetch(base, { headers })
+    expect(response.status).to.equal(404)
+  })
+
+  it('should respond with object item as a different user', async () => {
+    headers.Authorization = 'Bearer xyz789'
     const response = await fetch(base, { headers })
     const json = await response.json()
     expect(json.id).to.be.a('string')
-    expect(json.id).to.equal(id)
+    expect(json.id).to.equal(id2)
     expect(json.data).to.equal('foo')
   })
 
@@ -39,7 +45,7 @@ describe('get next offer', () => {
     const response = await fetch(base, { headers })
     const json = await response.json()
     expect(json.id).to.be.a('string')
-    expect(json.id).to.equal(id2)
+    expect(json.id).to.equal(id)
     expect(json.data).to.equal('foo')
   })
 })
