@@ -80,7 +80,7 @@ a:visited {
   overflow-y: scroll;
 }
 
-.side .peer.in-network {
+.side .peer:not(.direct) {
   color: var(--light);
 }
 

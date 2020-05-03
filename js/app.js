@@ -32,6 +32,10 @@ export default class App {
     localStorage.data = [...this.state.data].join('\r\n')
   }
 
+  connectTo (cid) {
+    console.log('want to connect to', cid)
+  }
+
   onrender (el) {
     if (el instanceof Element) {
       const expr = el.getAttribute('onrender')
@@ -60,6 +64,7 @@ class UI {
   template () {
     const view = this.state.view
     const channel = view.channels.get('#garden')
+    const peers = this.app.net.peers.map(peer => peer.cid)
     prevUser = null
     return `
       <div class="app">
@@ -68,7 +73,12 @@ class UI {
         </div>
         <div class="side">
           <div class="peers">
-            ${ channel ? $.map([...channel.users], cid => `<div>${view.nicks.get(cid) || cid}</div>`) : '' }
+            ${ channel ? $.map([...channel.users], cid =>
+              `<div
+                  class="peer ${ $.class({ direct: peers.includes(cid) }) }"
+                  onclick="${ this.connectTo }('${cid}')">
+                ${view.nicks.get(cid) || cid}
+              </div>`) : '' }
           </div>
         </div>
       </div>

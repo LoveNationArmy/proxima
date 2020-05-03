@@ -33,7 +33,7 @@ export default class Peer extends EventTarget {
 
   send (data) {
     const chunk = merge(this.data, data)
-    if (chunk.size) this.channel.send([...chunk].join('\r\n'))
+    if (chunk.size) try { this.channel.send([...chunk].join('\r\n')) } catch {}
   }
 
   async createOffer () {

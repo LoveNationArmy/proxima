@@ -1,4 +1,4 @@
 import App from './js/app.js'
-const app = new App(container)
+const app = window.app = new App(container)
 app.net.connect()
 app.render()
