@@ -22,6 +22,44 @@
     <meta charset="utf8">
     <title>proxima</title>
 <style>
+/* color variable declarations */
+
+body {
+  --main-light: #abe;
+  --main: #38f;
+  --back: #fff;
+  --text: #000;
+  --dark: #999;
+  --light: #ccc;
+  --very-light: #eee;
+}
+
+body.dark {
+  --main-light: #abe;
+  --main: #49f;
+  --text: #dadada;
+  --back: #2c2c2c;
+  --dark: #777;
+  --light: #4a4a4a;
+  --very-light: #555;
+}
+
+/* scrollbars */
+
+::-webkit-scrollbar {
+    width: 12px;
+}
+
+::-webkit-scrollbar-track {
+    -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    border-radius: 10px;
+    -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.5);
+}
+
 /* reset global styling */
 
 * {
@@ -33,13 +71,29 @@
 html, body, #container {
   width: 100%;
   height: 100%;
+  color: var(--text);
+  background: var(--back);
   font-size: 10pt;
   font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+}
+
+button {
+  background-image: linear-gradient(var(--back), var(--light));
+  border: 1px solid var(--light);
+  color: var(--text);
+  padding: 2px 6px;
+}
+
+button:active {
+  background-image: linear-gradient(var(--light), var(--back));
 }
 
 textarea {
   font: inherit;
   line-height: 11pt;
+  color: var(--text);
+  background: var(--back);
+  border-color: var(--light);
 }
 
 textarea.pre {
@@ -49,17 +103,7 @@ textarea.pre {
 .pre {
   white-space: pre;
   font-family: monospace;
-  font-size: 13px;
-}
-
-/* color variable declarations */
-
-:root {
-  --main-light: #abe;
-  --main: #38f;
-  --dark: #999;
-  --light: #ccc;
-  --very-light: #eee;
+  font-size: 12px;
 }
 
 /* app */
@@ -104,8 +148,8 @@ a:visited {
   overflow-y: scroll;
 }
 
-.side .peer.in-network {
-  color: var(--light);
+.side .peer:not(.direct) {
+  color: var(--dark);
 }
 
 /* chatarea */
@@ -144,11 +188,12 @@ a:visited {
   font-size: 12px;
   color: var(--dark);
 }
+
 /* user */
 
 .user {
   display: inline-block;
-  margin-top: 15px;
+  margin-top: 5px;
   margin-right: 5px;
   text-decoration: none;
 }
@@ -183,7 +228,7 @@ a:visited {
 }
 </style>
   </head>
-  <body>
+  <body class="dark">
     <div id="container"></div>
     <script>window.base = document.location.origin</script>
     <script>localStorage.token = window.token = localStorage.token || '<?php echo bin2hex(random_bytes(16)) ?>'</script>
@@ -1052,6 +1097,8 @@ a:visited {
   function parse (data) {
     const nicks = new Map();
     const channels = new Map();
+    const offers = new Map();
+    const answers = new Map();
     const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [] }).get(name);
     const parsed = lines(data).map(parseLine).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     const map = parsed.reduce((p, n) => (p[n.id] = n, p), {});
@@ -1061,11 +1108,13 @@ a:visited {
         case 'iam': nicks.set(msg.cid, msg.text); break
         case 'join': channel(msg.text).users.add(msg.cid); break
         case 'part': channel(msg.text).users.delete(msg.cid); break
+        case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
+        case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
         case 'msg': channel(msg.param).wall.push(msg); break
         default: console.error('Malformed message:', msg);
       }
     });
-    return { nicks, channels }
+    return { nicks, channels, offers, answers }
   }
 
   function lines (data) {
@@ -1206,7 +1255,7 @@ a:visited {
 
     send (data) {
       const chunk = merge(this.data, data);
-      if (chunk.size) this.channel.send([...chunk].join('\r\n'));
+      if (chunk.size) try { this.channel.send([...chunk].join('\r\n')); } catch {}
     }
 
     async createOffer () {
@@ -1316,6 +1365,10 @@ a:visited {
       peer.send(this.app.state.merged);
       emit(this, 'peer', peer);
       for await (const { detail: data } of on(peer, 'data', 'close')) {
+        const { offers } = parse(data);
+        const offer = offers.get(this.cid);
+        if (offer) this.answerTo(offer);
+
         this.broadcast(data, peer);
         emit(this, 'data', { data, peer });
       }
@@ -1326,7 +1379,7 @@ a:visited {
       emit(this, 'peer', peer);
     }
 
-    async broadcast (data, peer) {
+    async broadcast (data, peer = {}) {
       this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data));
     }
 
@@ -1345,6 +1398,47 @@ a:visited {
       }
     }
 
+    async offerTo (cid) {
+      if (this.peers.map(peer => peer.cid).includes(cid)) {
+        throw new Error(`Connection to ${cid} aborted, already connected.`)
+      }
+
+      const peer = new Peer();
+      const offer = await peer.createOffer();
+      const msg = this.format(`offer:${cid}`, JSON.stringify(offer.sdp));
+      this.broadcast([msg]);
+      try {
+        for await (const { detail: { data } } of on(this, 'data')) {
+          const { answers } = parse(data);
+          const answer = answers.get(this.cid);
+          if (answer) {
+            await peer.receiveAnswer({ type: 'answer', ...answer });
+            await Promise.race([once(peer, 'open'), secs(30)]);
+            if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
+            return this.addPeer(peer)
+          }
+        }
+      } catch (error) {
+        console.error(error);
+      }
+      peer.close();
+    }
+
+    async answerTo (offer) {
+      const peer = new Peer();
+      try {
+        const answer = await peer.createAnswer({ type: 'offer', ...offer });
+        const msg = this.format(`answer:${offer.cid}`, JSON.stringify(answer.sdp));
+        this.broadcast([msg]);
+        await Promise.race([once(peer, 'open'), secs(30)]);
+        if (!peer.connected) throw new Error(`Connection timeout [by answer to ${offer.cid}].`)
+        return this.addPeer(peer)
+      } catch (error) {
+        console.error(error);
+      }
+      peer.close();
+    }
+
     async createPeer (type) {
       const peer = new Peer();
       try {
@@ -1360,11 +1454,11 @@ a:visited {
         }
         await Promise.race([once(peer, 'open'), secs(30)]);
         if (!peer.connected) throw new Error(`Connection timeout [${type}].`)
-        this.addPeer(peer);
+        return this.addPeer(peer)
       } catch (error) {
         console.error(error);
-        peer.close();
       }
+      peer.close();
     }
           // public/private key generated on init
           // peer broadcasts public key
@@ -1455,6 +1549,10 @@ a:visited {
       localStorage.data = [...this.state.data].join('\r\n');
     }
 
+    offerTo (cid) {
+      this.net.offerTo(cid);
+    }
+
     onrender (el) {
       if (el instanceof Element) {
         const expr = el.getAttribute('onrender');
@@ -1483,16 +1581,22 @@ a:visited {
     template () {
       const view = this.state.view;
       const channel = view.channels.get('#garden');
+      const peers = this.app.net.peers.map(peer => peer.cid);
       prevUser = null;
       return `
       <div class="app">
-        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
-          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
-        </div>
         <div class="side">
           <div class="peers">
-            ${ channel ? $.map([...channel.users], cid => `<div>${view.nicks.get(cid) || cid}</div>`) : '' }
+            ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid =>
+              `<div
+                  class="peer ${ $.class({ direct: peers.includes(cid) }) }"
+                  onclick="${ this.offerTo }('${cid}')">
+                ${view.nicks.get(cid) || cid}
+              </div>`) : '' }
           </div>
+        </div>
+        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
+          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
         </div>
       </div>
     `
@@ -1519,6 +1623,7 @@ a:visited {
           ${ channel ? $.map(channel.wall, post => $(Post, post, { view })) : ''}
         </div>
         <div class="chatbar">
+          <div class="target">${this.app.net.cid}</div>
           <div class="nick">${ view.nicks.get(this.app.net.cid) }</div>
           <textarea
             class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
@@ -1613,7 +1718,7 @@ a:visited {
               // , ([pcid, nick, inNetwork]) =>
               //   `<div class="peer ${inNetwork ? 'in-network' : ''}" ${inNetwork ? `data-cid="${pcid}" onclick="${ this.offerToPeer }(this.dataset.cid)"` : ''}>${htmlescape(nick)}</div>`) }
 
-  const app = new App(container);
+  const app = window.app = new App(container);
   app.net.connect();
   app.render();
 
