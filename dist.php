@@ -39,12 +39,17 @@ html, body, #container {
 
 textarea {
   font: inherit;
+  line-height: 11pt;
+}
+
+textarea.pre {
+  white-space: pre-line;
 }
 
 .pre {
   white-space: pre;
   font-family: monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* color variable declarations */
@@ -52,7 +57,8 @@ textarea {
 :root {
   --main-light: #abe;
   --main: #38f;
-  --light: #bbb;
+  --dark: #999;
+  --light: #ccc;
   --very-light: #eee;
 }
 
@@ -79,18 +85,21 @@ a:visited {
   color: var(--main);
 }
 
+/* main */
+
 .main {
-  height: 100%;
-  /*max-height: 100%;*/
+  display: flex;
+  align-items: flex-end;
   width: 80%;
-  overflow-wrap: break-word;
   overflow-y: scroll;
 }
 
+/* side */
+
 .side {
   padding: 10px;
-  background: var(--very-light);
   width: 20%;
+  background: var(--very-light);
   overflow-wrap: break-word;
   overflow-y: scroll;
 }
@@ -99,22 +108,12 @@ a:visited {
   color: var(--light);
 }
 
-/* chatbar */
+/* chatarea */
 
-.chatbar {
-  padding: 5px;
-  border-top: 1px solid var(--light);
-  display: flex;
-  align-items: center;
-}
-
-.chatbar .nick {
-  margin-right: 5px;
-}
-
-.chatbar textarea {
-  flex: 1;
-  margin-right: 5px;
+.chatarea {
+  width: 100%;
+  max-height: 100vh;
+  overflow-wrap: break-word;
 }
 
 /* wall */
@@ -124,6 +123,29 @@ a:visited {
   overflow-wrap: break-word;
 }
 
+/* chatbar */
+
+.chatbar {
+  display: flex;
+  align-items: center;
+  padding: 5px;
+  border-top: 1px solid var(--light);
+}
+
+.chatbar textarea {
+  flex: 1;
+}
+
+.chatbar > * {
+  margin: 0 2px;
+}
+
+.chatbar .target {
+  font-size: 12px;
+  color: var(--dark);
+}
+/* user */
+
 .user {
   display: inline-block;
   margin-top: 15px;
@@ -131,8 +153,11 @@ a:visited {
   text-decoration: none;
 }
 
+/* post */
+
 .post {
   display: inline-block;
+  max-width: 100%;
 }
 
 .post info {
@@ -160,6 +185,7 @@ a:visited {
   </head>
   <body>
     <div id="container"></div>
+    <script>window.base = document.location.origin</script>
     <script>localStorage.token = window.token = localStorage.token || '<?php echo bin2hex(random_bytes(16)) ?>'</script>
 <script>
 (function () {
@@ -232,7 +258,7 @@ a:visited {
 
             window.handlers[handlerId] = handler;
             handler.toString = () => `handlers['${ handlerId }'](this)`;
-            value = function handlerfn (...args) { return handler(this).apply(this, args) };
+            value = function handlerfn (...args) { return handler(this.el).apply(this, args) };
             value.toString = handler.toString;
           }
 
@@ -579,6 +605,7 @@ a:visited {
           var onNodeAdded = options.onNodeAdded || noop;
           var onBeforeElUpdated = options.onBeforeElUpdated || noop;
           var onElUpdated = options.onElUpdated || noop;
+          var onAfterElUpdated = options.onAfterElUpdated || noop;
           var onBeforeNodeDiscarded = options.onBeforeNodeDiscarded || noop;
           var onNodeDiscarded = options.onNodeDiscarded || noop;
           var onBeforeElChildrenUpdated = options.onBeforeElChildrenUpdated || noop;
@@ -757,6 +784,10 @@ a:visited {
                 morphChildren(fromEl, toEl);
               } else {
                 specialElHandlers.TEXTAREA(fromEl, toEl);
+              }
+
+              if (!childrenOnly) {
+                  onAfterElUpdated(fromEl);
               }
           }
 
@@ -1004,36 +1035,91 @@ a:visited {
 
   var morphdom = morphdomFactory(morphAttrs);
 
-  class State extends EventTarget {
-    constructor (data = '') {
-      super();
-      this.token = window.token;
-      this.data = data.split('\r\n');
-    }
+  function randomId () {
+    return (Math.random() * 10e6 | 0).toString(36) + (Math.random() * 10e6 | 0).toString(36)
+  }
 
-    get cid () {
-      return this.token.slice(-5)
-    }
-
-    get wall () {
-      const tree = [];
-      const parsed = this.data.map(parse).sort((a, b) => a.time - b.time);
-      const map = parsed.reduce((p, n) => (p[n.id] = n, p), {});
-      parsed.forEach(msg => {
-        if (msg.command === 're')
-          (map[msg.param].replies = map[msg.param].replies || []).push(msg);
-        else
-          tree.push(msg);
-      });
-      return tree
+  function formatter (cid) {
+    return (...message) => {
+      return [
+        `${performance.timeOrigin + performance.now()}.${randomId()}`,
+        cid,
+        message.join(' ')
+      ].join('\t')
     }
   }
 
-  const parse = line => {
-    const [time, cid, id, ...rest] = line.split('\t');
-    const [command, param, ...text] = rest.join('\t').split(' ');
-    return { time, cid, id, command, param, text: text.join(' ') }
+  function parse (data) {
+    const nicks = new Map();
+    const channels = new Map();
+    const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [] }).get(name);
+    const parsed = lines(data).map(parseLine).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const map = parsed.reduce((p, n) => (p[n.id] = n, p), {});
+    parsed.forEach(msg => {
+      switch (msg.command) {
+        case 're': (map[msg.param].replies = map[msg.param].replies || []).push(msg); break
+        case 'iam': nicks.set(msg.cid, msg.text); break
+        case 'join': channel(msg.text).users.add(msg.cid); break
+        case 'part': channel(msg.text).users.delete(msg.cid); break
+        case 'msg': channel(msg.param).wall.push(msg); break
+        default: console.error('Malformed message:', msg);
+      }
+    });
+    return { nicks, channels }
+  }
+
+  function lines (data) {
+    return [...data].map(chunk => chunk.split('\r\n')).flat(Infinity)
+  }
+
+  function merge (target, source) {
+    const chunk = new Set();
+
+    lines(source).forEach(line => {
+      if (!target.has(line)) {
+        target.add(line);
+        chunk.add(line);
+      }
+    });
+
+    return chunk
+  }
+
+  const parseLine = line => {
+    let [id, cid, ...rest] = line.split('\t');
+    rest = rest.join('\t').split(' ');
+    let [command, param] = rest[0].split(':');
+    let text = rest.slice(1).join(' ');
+    return { id, cid, command, param, text }
   };
+
+  const randomNick = () => {
+    const nicks = [
+      'john', 'anna', 'bob', 'suzanne', 'joe', 'mary', 'phil', 'julia', 'george', 'kate', 'chris', 'christine'
+    ];
+    return nicks[Math.random() * nicks.length | 0]
+  };
+
+  class State {
+    constructor (app, data = '') {
+      this.app = app;
+      this.data = new Set(data ? [data] : [
+        app.net.format('iam', randomNick()),
+        app.net.format('join', '#garden'),
+        app.net.format('msg:#garden', 'hello')
+      ]);
+      this.newPost = '';
+      this.textareaRows = 1;
+    }
+
+    get merged () {
+      return new Set([this.app.net.peers.map(peer => lines(peer.data)), ...this.data].flat(Infinity))
+    }
+
+    get view () {
+      return parse(this.merged)
+    }
+  }
 
   function emit (target, name, data) {
     return target.dispatchEvent(new CustomEvent(name, { detail: data }))
@@ -1044,9 +1130,16 @@ a:visited {
   }
 
   function on (emitter, name, until) {
-    let resolve, reject;
+    let resolve = () => {}, reject = () => {};
 
-    const listener = event => resolve(event);
+    let needle = 0;
+
+    const listener = event => {
+      listener.events.push(event);
+      resolve(event);
+    };
+
+    listener.events = [];
 
     listener.end = event => {
       emitter.removeEventListener(name, listener);
@@ -1055,14 +1148,22 @@ a:visited {
     };
 
     listener[Symbol.asyncIterator] = async function * () {
+      // send events in queue
+      while (needle < listener.events.length) {
+        yield listener.events[needle++];
+      }
       while (!listener.ended) {
-        yield new Promise((...callbacks) => ([resolve, reject] = callbacks));
+        try {
+          yield new Promise((...callbacks) => ([resolve, reject] = callbacks));
+        } catch {
+          return
+        }
       }
     };
 
     emitter.addEventListener(name, listener);
 
-    if (until) once(emitter, until);
+    if (until) once(emitter, until).then(listener.end);
 
     return listener
   }
@@ -1071,76 +1172,86 @@ a:visited {
     return new Promise(resolve => setTimeout(resolve, n * 1000))
   }
 
+  function copy (obj) {
+    return JSON.parse(JSON.stringify(obj))
+  }
+
   const OPTIONS = {
     iceServers: []
   };
 
-  class Peer {
+  class Peer extends EventTarget {
     constructor (opts = OPTIONS) {
+      super();
       this.cid = null;
-      this.connection = new RTCPeerConnection(opts);
+      this.data = new Set();
       this.connected = false;
-    }
-
-    open (offer) {
-      if (offer) {
-        return this.createAnswer(offer)
-      } else {
-        return this.createOffer()
-      }
+      this.connection = new RTCPeerConnection(opts);
+      this.connection.onconnectionstatechange = () => {
+        switch (this.connection.connectionState) {
+          case 'disconnected':
+          case 'failed':
+          case 'closed':
+            this.close();
+        }
+      };
     }
 
     close () {
-      return this.connection.close()
+      this.connected = false;
+      try { this.connection.close(); } catch {}
+      try { this.messages.end(); } catch {}
+      emit(this, 'close');
+    }
+
+    send (data) {
+      const chunk = merge(this.data, data);
+      if (chunk.size) this.channel.send([...chunk].join('\r\n'));
     }
 
     async createOffer () {
-      this.channel = this.connection.createDataChannel('data');
+      this.openChannel(this.connection.createDataChannel('data'));
       await once(this.connection, 'negotiationneeded');
       const offer = await this.connection.createOffer();
       return this.createSignal(offer)
+    }
+
+    receiveAnswer (answer) {
+      this.cid = answer.cid;
+      return this.connection.setRemoteDescription(answer)
     }
 
     async createAnswer (offer) {
       this.cid = offer.cid;
       await this.connection.setRemoteDescription(offer);
       const answer = await this.connection.createAnswer();
-      console.log('creating answer', offer, answer);
-      answer.id = offer.id;
-      return this.createSignal(answer)
+      once(this.connection, 'datachannel').then(({ channel }) => this.openChannel(channel));
+      return this.createSignal({ ...offer, ...copy(answer) })
     }
 
     async createSignal (signal) {
       signal.sdp = signal.sdp.replace(/a=ice-options:trickle\s\n/g, '');
       await this.connection.setLocalDescription(signal);
-      await Promise.race([
-        once(this.connection, 'icecandidate'),
-        secs(30)
-      ]);
-      return {
-        id: signal.id,
-        type: this.connection.localDescription.type,
-        sdp: this.connection.localDescription.sdp
-      }
+      await Promise.race([once(this.connection, 'icecandidate'), secs(30)]);
+      return { ...signal, ...copy(this.connection.localDescription) }
     }
 
-    async connect (answer) {
-      if (answer) {
-        this.cid = answer.cid;
-        await this.connection.setRemoteDescription(answer);
-      } else {
-        const event = await Promise.race([
-          once(this.connection, 'datachannel'),
-          secs(30)
-        ]);
-        if (!event) throw new Error('Answer timed out.')
-        this.channel = event.channel;
+    async openChannel (channel) {
+      this.channel = channel;
+      this.messages = on(this.channel, 'message', 'close');
+      await once(this.channel, 'open');
+      this.format = formatter(this.cid);
+      this.connected = true;
+      emit(this, 'open');
+      for await (const { data } of this.messages) {
+        const chunk = merge(this.data, [data]);
+        if (chunk.size) emit(this, 'data', chunk);
       }
-      return once(this.channel, 'open')
+      this.close();
     }
   }
 
-  let base = 'http://localhost'; //document.location.origin
+  let base = window.base || 'http://localhost';
 
   const json = res => res.json();
   const headers = {
@@ -1148,7 +1259,6 @@ a:visited {
     Authorization: `Bearer ${window.token}`
   };
   const get = (url, opts = {}) => fetch(url, Object.assign(opts, { headers })).then(json);
-  const del = url => get(url, { method: 'DELETE' });
   const post = (url, data) => {
     const body = new FormData();
     Object.keys(data).forEach(key => body.append(key, data[key]));
@@ -1164,9 +1274,8 @@ a:visited {
     // if (!notKnownPeer(id)) throw new Error('Answer aborted, known peer')
   // }
   const getAnswer = offer => get(`${base}/?id=${offer.id}`);
-  const deleteOffer = offer => del(`${base}/?id=${offer.id}`);
 
-  const waitForAnswer = async (offer, retries = 10) => {
+  const pollForAnswer = async (offer, retries = 10) => {
     for (let i = 0, answer; i < retries; i++) {
       try {
         answer = await getAnswer(offer);
@@ -1178,49 +1287,47 @@ a:visited {
     throw new Error('Waiting for answer failed: Max retries reached')
   };
 
-  var http = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    base: base,
-    getNextOffer: getNextOffer,
-    sendOffer: sendOffer,
-    sendAnswer: sendAnswer,
-    deleteOffer: deleteOffer,
-    waitForAnswer: waitForAnswer
-  });
-
   const OPTIONS$1 = {
-    maxPeers: 5
+    maxPeers: 6
   };
 
   class Net extends EventTarget {
-    constructor (opts = OPTIONS$1) {
+    constructor (app, opts = OPTIONS$1) {
       super();
+      this.cid = window.token.slice(-5);
+      this.app = app;
       this.opts = opts;
       this.peers = [];
+      this.format = formatter(this.cid);
     }
 
     async connect () {
       this.make('offer');
-      await secs();
+      await secs(); // shuffle entry for answers. useful when dev
       this.make('answer');
     }
 
     async addPeer (peer) {
-      console.log('peer connected', peer);
+      let msg;
       this.peers.push(peer);
-      peer.connected = true;
+      msg = peer.format('join', '#garden');
+      this.app.state.data.add(msg);
+      this.broadcast([msg], peer);
+      peer.send(this.app.state.merged);
       emit(this, 'peer', peer);
-      await once(peer.channel, 'close');
+      for await (const { detail: data } of on(peer, 'data', 'close')) {
+        this.broadcast(data, peer);
+        emit(this, 'data', { data, peer });
+      }
       this.peers.splice(this.peers.indexOf(peer), 1);
-      peer.connected = false;
+      msg = peer.format('part', '#garden');
+      this.app.state.data.add(msg);
+      this.broadcast([msg], peer);
       emit(this, 'peer', peer);
     }
 
-    async listen (peer) {
-      // wait for a message from channel
-      for await (const { data } of on(peer.channel, 'message', 'close')) {
-        emit(this, 'message', { data, peer });
-      }
+    async broadcast (data, peer) {
+      this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data));
     }
 
     async lessThanMaxPeers () {
@@ -1233,58 +1340,58 @@ a:visited {
     async make (type) {
       while (true) {
         await this.lessThanMaxPeers();
-        await this.createPeer(type, http);
+        await this.createPeer(type);
         await secs(3 + this.peers.length ** 3);
       }
     }
 
-    async createPeer (type, transport) {
+    async createPeer (type) {
       const peer = new Peer();
       try {
         if (type === 'offer') {
-          // public/private key generated on init
-          // peer broadcasts public key
-          // other peers use public key to encrypt a message(offer) to be whispered
-          // only peer with private key can decrypt the message
-          // channel.offer should contain an id known only to this peer
-          // so that we can use it to delete the offer on completion/failure
-          const offer = await sendOffer(await peer.open());
-          const answer = await waitForAnswer(offer);
-          await peer.connect(answer);
-
-          //await peer.connect(await this.handshake(transport, await peer.open()))
+          const offer = await sendOffer(await peer.createOffer());
+          const answer = await pollForAnswer(offer);
+          await peer.receiveAnswer(answer);
         } else if (type === 'answer') {
           const known = this.peers.map(peer => peer.cid).join();
           const offer = await getNextOffer(known);
-          const answer = await peer.open(offer);
+          const answer = await peer.createAnswer(offer);
           await sendAnswer(answer);
-          await peer.connect();
-
-          // await this.handshake(transport, await peer.open(await this.handshake(transport)))
-          // await peer.connect()
         }
+        await Promise.race([once(peer, 'open'), secs(30)]);
+        if (!peer.connected) throw new Error(`Connection timeout [${type}].`)
         this.addPeer(peer);
       } catch (error) {
         console.error(error);
         peer.close();
       }
     }
+          // public/private key generated on init
+          // peer broadcasts public key
+          // other peers use public key to encrypt a message(offer) to be whispered
+          // only peer with private key can decrypt the message
+          // channel.offer should contain an id known only to this peer
+          // so that we can use it to delete the offer on completion/failure
+          //await peer.connect(await this.handshake(transport, await peer.open()))
 
-    async handshake (transport, signal) {
-      if (signal) {
-        if (signal.type === 'offer') {
-          const offer = await transport.sendOffer(signal);
-          const answer = await transport.waitForAnswer(offer);
-          return answer
-        } else if (signal.type === 'answer') {
-          await transport.sendAnswer(signal);
-        }
-      } else {
-        const known = this.peers.map(peer => peer.cid).join();
-        const offer = await transport.getNextOffer(known);
-        return offer
-      }
-    }
+          // await this.handshake(transport, await peer.open(await this.handshake(transport)))
+          // await peer.connect()
+
+    // async handshake (transport, signal) {
+    //   if (signal) {
+    //     if (signal.type === 'offer') {
+    //       const offer = await transport.sendOffer(signal)
+    //       const answer = await transport.waitForAnswer(offer)
+    //       return answer
+    //     } else if (signal.type === 'answer') {
+    //       await transport.sendAnswer(signal)
+    //     }
+    //   } else {
+    //     const known = this.peers.map(peer => peer.cid).join()
+    //     const offer = await transport.getNextOffer(known)
+    //     return offer
+    //   }
+    // }
 
     // async swarmHandshake (signal) {
     //   if (signal) {
@@ -1323,16 +1430,21 @@ a:visited {
   class App {
     constructor (el) {
       this.el = el;
-      this.net = new Net();
-      this.setState(new State(this.load()));
+      this.app = this;
+      this.net = new Net(this);
+      this.state = new State(this, this.load());
+      this.ui = $(UI, this);
       this.net.addEventListener('peer', () => this.render());
+      this.net.addEventListener('data', () => this.render());
       document.addEventListener('render', () => this.render());
     }
 
-    setState (state) {
-      this.state = state;
-      this.state.peers = this.net.peers; // TODO: move in State
-      this.ui = $(UI, this.state, { app: this });
+    dispatch (...message) {
+      message = this.net.format(...message);
+      console.log('dispatch', message);
+      this.state.data.add(message);
+      this.net.broadcast([message], this.net);
+      // this.dispatchEvent(new CustomEvent('data', { detail: data }))
     }
 
     load () {
@@ -1340,7 +1452,7 @@ a:visited {
     }
 
     save () {
-      localStorage.data = this.state.data.join('\r\n');
+      localStorage.data = [...this.state.data].join('\r\n');
     }
 
     onrender (el) {
@@ -1354,31 +1466,140 @@ a:visited {
     }
 
     render () {
-      console.log('render', this.state);
       const html = this.ui.toString(true);
       morphdom(this.el, html, {
         onNodeAdded: this.onrender,
-        onElUpdated: this.onrender
+        onElUpdated: this.onrender,
+        onAfterElUpdated: this.onrender
       });
     }
   }
 
   class UI {
+    constructor () {
+      this.isBottom = true;
+    }
+
     template () {
+      const view = this.state.view;
+      const channel = view.channels.get('#garden');
+      prevUser = null;
       return `
       <div class="app">
-        <div class="main">
-          ${ $.map(this.wall, msg => `<div>${msg.text}</div>`) }
+        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
+          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
         </div>
         <div class="side">
           <div class="peers">
-            ${ $.map(this.peers, peer => `<div>${peer.cid}</div>`) }
+            ${ channel ? $.map([...channel.users], cid => `<div>${view.nicks.get(cid) || cid}</div>`) : '' }
           </div>
         </div>
       </div>
     `
     }
+
+    checkScrollBottom () {
+      this.isBottom = Math.round(this.scrollTop + this.clientHeight) >= this.scrollHeight - 50;
+      return false
+    }
+
+    scrollToBottom () {
+      if (this.isBottom) this.scrollTop = this.scrollHeight;
+      return false
+    }
   }
+
+  class ChatArea {
+    template () {
+      const view = this.view;
+      const channel = this.view.channels.get(this.target);
+      return `
+      <div class="chatarea">
+        <div class="wall">
+          ${ channel ? $.map(channel.wall, post => $(Post, post, { view })) : ''}
+        </div>
+        <div class="chatbar">
+          <div class="nick">${ view.nicks.get(this.app.net.cid) }</div>
+          <textarea
+            class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
+            onkeydown="${ this.processKeyDown }(event)"
+            oninput="${ this.processInput }()"
+            rows=${ this.state.textareaRows }>${ this.state.newPost }</textarea>
+          <button onclick="${ this.createPost }()">send</button>
+          <div class="target">${this.target}</div>
+        </div>
+      </div>
+    `
+    }
+
+    createPost () {
+      if (!this.state.newPost.length) return
+      this.app.dispatch('msg:#garden', this.state.newPost);
+      this.state.newPost = '';
+      this.state.textareaRows = 1;
+    }
+
+    processKeyDown (event) {
+      if (event.which === 13) {
+        if (event.ctrlKey === true) {
+          const pos = this.selectionStart;
+          this.value = this.value.slice(0, pos) + '\n' + this.value.slice(pos);
+          this.processInput();
+          this.selectionStart = this.selectionEnd = pos + 1;
+        } else {
+          event.preventDefault();
+          this.createPost();
+          return false
+        }
+      } else {
+        return false
+      }
+    }
+
+    processInput (arg) {
+      const rows = this.state.textareaRows;
+      this.state.newPost = this.value;
+      const computed = window.getComputedStyle(this.el);
+      const newRows = Math.max(
+        this.state.newPost.split('\n').length,
+        Math.floor(this.scrollHeight / (parseFloat(computed.lineHeight)))
+      );
+      if (newRows === rows) return false
+      this.state.textareaRows = newRows;
+    }
+  }
+
+  let prevUser, prevTime;
+
+  class Post {
+    // ({ meta, user, time, text, replies = [] }) => `
+    template () {
+      const lastPrevUser = prevUser;
+      const lastPrevTime = lastPrevUser !== this.cid ? 0 : prevTime;
+      prevUser = this.cid;
+      prevTime = parseInt(this.time);
+      return `
+      <br>
+      <div class="post">
+        ${ lastPrevUser !== this.cid ? `<a class="user" href="/#~${this.cid}">${htmlescape(this.view.nicks.get(this.cid))}:</a>` : `` }
+        ${ prevTime - lastPrevTime > 1000 * 60 ? `
+        <info>
+          <!-- <time>${new Date(+this.time).toLocaleString()}</time> -->
+          <a href="#">reply</a>
+        </info>` : '' }
+        <p class="${ this.text.includes('\n') ? 'pre' : '' }">${htmlescape(this.text, this.text.includes('\n'))}</p>
+        ${ $.map(this.replies || [], post => $(Post, { view: this.view, ...post })) }
+      </div>
+    `
+    }
+  }
+
+  function htmlescape (text, initialSpace) {
+    text = text.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    if (initialSpace) text = text.replace(/ /,'&nbsp;');
+    return text
+  }
+
           // ${ this.privateOpen ? `
           //   <div class="private">
           //     ${ $(ChatArea, this.private[this.privatePeer.cid]) }

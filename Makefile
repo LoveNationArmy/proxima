@@ -24,6 +24,9 @@ build:
 dev:
 	@live-server --ignorePattern=signals --entry-file=main.html
 
+php: clean build
+	@php -S 0.0.0.0:1337 dist.php
+
 clean:
 	rm -rf signals/offers/*
 	rm -rf signals/answers/*

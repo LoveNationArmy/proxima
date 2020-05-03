@@ -1,6 +1,6 @@
 import secs from './lib/secs.js'
 
-export let base = 'http://localhost' //document.location.origin
+export let base = window.base || 'http://localhost'
 
 const json = res => res.json()
 const headers = {
