@@ -32,8 +32,8 @@ export default class App {
     localStorage.data = [...this.state.data].join('\r\n')
   }
 
-  connectTo (cid) {
-    console.log('want to connect to', cid)
+  offerTo (cid) {
+    this.net.offerTo(cid)
   }
 
   onrender (el) {
@@ -68,18 +68,18 @@ class UI {
     prevUser = null
     return `
       <div class="app">
-        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
-          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
-        </div>
         <div class="side">
           <div class="peers">
-            ${ channel ? $.map([...channel.users], cid =>
+            ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid =>
               `<div
                   class="peer ${ $.class({ direct: peers.includes(cid) }) }"
-                  onclick="${ this.connectTo }('${cid}')">
+                  onclick="${ this.offerTo }('${cid}')">
                 ${view.nicks.get(cid) || cid}
               </div>`) : '' }
           </div>
+        </div>
+        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
+          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
         </div>
       </div>
     `
@@ -106,6 +106,7 @@ class ChatArea {
           ${ channel ? $.map(channel.wall, post => $(Post, post, { view })) : ''}
         </div>
         <div class="chatbar">
+          <div class="target">${this.app.net.cid}</div>
           <div class="nick">${ view.nicks.get(this.app.net.cid) }</div>
           <textarea
             class="${ $.class({ pre: this.state.textareaRows > 1 }) }"

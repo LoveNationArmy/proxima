@@ -13,6 +13,8 @@ export function formatter (cid) {
 export function parse (data) {
   const nicks = new Map()
   const channels = new Map()
+  const offers = new Map()
+  const answers = new Map()
   const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [] }).get(name)
   const parsed = lines(data).map(parseLine).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   const map = parsed.reduce((p, n) => (p[n.id] = n, p), {})
@@ -22,11 +24,13 @@ export function parse (data) {
       case 'iam': nicks.set(msg.cid, msg.text); break
       case 'join': channel(msg.text).users.add(msg.cid); break
       case 'part': channel(msg.text).users.delete(msg.cid); break
+      case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
+      case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
       case 'msg': channel(msg.param).wall.push(msg); break
       default: console.error('Malformed message:', msg)
     }
   })
-  return { nicks, channels }
+  return { nicks, channels, offers, answers }
 }
 
 export function lines (data) {

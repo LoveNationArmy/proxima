@@ -1,7 +1,7 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import Peer from './peer.js'
-import { formatter } from './parse.js'
+import { formatter, parse } from './parse.js'
 import * as http from './signal-http.js'
 
 const OPTIONS = {
@@ -33,6 +33,10 @@ export default class Net extends EventTarget {
     peer.send(this.app.state.merged)
     emit(this, 'peer', peer)
     for await (const { detail: data } of on(peer, 'data', 'close')) {
+      const { offers } = parse(data)
+      const offer = offers.get(this.cid)
+      if (offer) this.answerTo(offer)
+
       this.broadcast(data, peer)
       emit(this, 'data', { data, peer })
     }
@@ -43,7 +47,7 @@ export default class Net extends EventTarget {
     emit(this, 'peer', peer)
   }
 
-  async broadcast (data, peer) {
+  async broadcast (data, peer = {}) {
     this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data))
   }
 
@@ -62,6 +66,47 @@ export default class Net extends EventTarget {
     }
   }
 
+  async offerTo (cid) {
+    if (this.peers.map(peer => peer.cid).includes(cid)) {
+      throw new Error(`Connection to ${cid} aborted, already connected.`)
+    }
+
+    const peer = new Peer()
+    const offer = await peer.createOffer()
+    const msg = this.format(`offer:${cid}`, JSON.stringify(offer.sdp))
+    this.broadcast([msg])
+    try {
+      for await (const { detail: { data } } of on(this, 'data')) {
+        const { answers } = parse(data)
+        const answer = answers.get(this.cid)
+        if (answer) {
+          await peer.receiveAnswer({ type: 'answer', ...answer })
+          await Promise.race([once(peer, 'open'), secs(30)])
+          if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
+          return this.addPeer(peer)
+        }
+      }
+    } catch (error) {
+      console.error(error)
+    }
+    peer.close()
+  }
+
+  async answerTo (offer) {
+    const peer = new Peer()
+    try {
+      const answer = await peer.createAnswer({ type: 'offer', ...offer })
+      const msg = this.format(`answer:${offer.cid}`, JSON.stringify(answer.sdp))
+      this.broadcast([msg])
+      await Promise.race([once(peer, 'open'), secs(30)])
+      if (!peer.connected) throw new Error(`Connection timeout [by answer to ${offer.cid}].`)
+      return this.addPeer(peer)
+    } catch (error) {
+      console.error(error)
+    }
+    peer.close()
+  }
+
   async createPeer (type) {
     const peer = new Peer()
     try {
@@ -77,11 +122,11 @@ export default class Net extends EventTarget {
       }
       await Promise.race([once(peer, 'open'), secs(30)])
       if (!peer.connected) throw new Error(`Connection timeout [${type}].`)
-      this.addPeer(peer)
+      return this.addPeer(peer)
     } catch (error) {
       console.error(error)
-      peer.close()
     }
+    peer.close()
   }
         // public/private key generated on init
         // peer broadcasts public key
