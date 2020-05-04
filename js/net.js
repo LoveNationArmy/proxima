@@ -113,7 +113,8 @@ export default class Net extends EventTarget {
     await Promise.race([once(peer, 'open'), secs(30)])
     try {
       if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
-      return this.addPeer(peer)
+      this.addPeer(peer)
+      return
     } catch (error) {
       console.error(error)
     }
@@ -131,7 +132,8 @@ export default class Net extends EventTarget {
       this.app.dispatch(`answer:${offer.cid}`, JSON.stringify(encryptedAnswer))
       await Promise.race([once(peer, 'open'), secs(30)])
       if (!peer.connected) throw new Error(`Connection timeout [by answer to ${offer.cid}].`)
-      return this.addPeer(peer)
+      this.addPeer(peer)
+      return
     } catch (error) {
       console.error(error)
     }
@@ -153,7 +155,8 @@ export default class Net extends EventTarget {
       }
       await Promise.race([once(peer, 'open'), secs(30)])
       if (!peer.connected) throw new Error(`Connection timeout [${type}].`)
-      return this.addPeer(peer)
+      this.addPeer(peer)
+      return
     } catch (error) {
       console.error(error)
     }
