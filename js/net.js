@@ -1,7 +1,8 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import Peer from './peer.js'
-import { formatter, parse } from './parse.js'
+import { formatter, parse, diff } from './parse.js'
+import { encrypt, decrypt } from './crypto.js'
 import * as http from './signal-http.js'
 
 const OPTIONS = {
@@ -15,6 +16,7 @@ export default class Net extends EventTarget {
     this.app = app
     this.opts = opts
     this.peers = []
+    this.offerPeers = new Map()
     this.format = formatter(this.cid)
   }
 
@@ -25,25 +27,54 @@ export default class Net extends EventTarget {
   }
 
   async addPeer (peer) {
-    let msg
+    // connect
     this.peers.push(peer)
-    msg = peer.format('join', '#garden')
-    this.app.state.data.add(msg)
-    this.broadcast([msg], peer)
-    peer.send(this.app.state.merged)
+    this.app.dispatch('connect', peer.cid)
+    peer.send(this.app.state.merge(false, true))
     emit(this, 'peer', peer)
-    for await (const { detail: data } of on(peer, 'data', 'close')) {
-      const { offers } = parse(data)
-      const offer = offers.get(this.cid)
-      if (offer) this.answerTo(offer)
+    emit(this, `peer:${peer.cid}`, peer)
 
-      this.broadcast(data, peer)
-      emit(this, 'data', { data, peer })
+    // data in
+    for await (const { detail: data } of on(peer, 'data', 'close')) {
+      const chunk = diff(this.app.state.merge(false, true), data)
+      peer.data.in = new Set([...peer.data.in, ...data])
+
+      if (chunk.size) {
+        const view = parse(chunk)
+        const offer = view.offers.get(this.cid)
+        const answer = view.answers.get(this.cid)
+
+        if (offer) {
+          try {
+            const decryptedOffer = await decrypt(this.app.keys.privateKey, JSON.parse(offer.sdp))
+            this.answerTo({ cid: offer.cid, type: 'offer', sdp: JSON.parse(decryptedOffer) })
+          } catch (error) {
+            console.error('Error while receiving offer:', error)
+          }
+        } else if (answer) {
+          const offerPeer = this.offerPeers.get(answer.cid)
+          if (offerPeer) {
+            try {
+              const decryptedAnswer = await decrypt(this.app.keys.privateKey, JSON.parse(answer.sdp))
+              await offerPeer.receiveAnswer({ cid: answer.cid, type: 'answer', sdp: JSON.parse(decryptedAnswer) })
+              this.offerPeers.delete(answer.cid) // ensure this is not used for double answers
+            } catch (error) {
+              console.error('Error while receiving answer:', error)
+            }
+          } else {
+            console.error('No such offer peer (double answer attempt?):', answer)
+          }
+        } else {
+          this.broadcast(data, peer)
+        }
+
+        emit(this, 'data', { data, peer })
+      }
     }
+
+    // disconnect
     this.peers.splice(this.peers.indexOf(peer), 1)
-    msg = peer.format('part', '#garden')
-    this.app.state.data.add(msg)
-    this.broadcast([msg], peer)
+    this.app.dispatch('disconnect', peer.cid)
     emit(this, 'peer', peer)
   }
 
@@ -62,7 +93,7 @@ export default class Net extends EventTarget {
     while (true) {
       await this.lessThanMaxPeers()
       await this.createPeer(type)
-      await secs(3 + this.peers.length ** 3)
+      await secs(2 + this.peers.length ** 3)
     }
   }
 
@@ -73,19 +104,16 @@ export default class Net extends EventTarget {
 
     const peer = new Peer()
     const offer = await peer.createOffer()
-    const msg = this.format(`offer:${cid}`, JSON.stringify(offer.sdp))
-    this.broadcast([msg])
+    const encryptedOffer = await encrypt(
+      JSON.parse(this.app.state.view.keys.get(cid)),
+      JSON.stringify(offer.sdp)
+    )
+    this.offerPeers.set(cid, peer)
+    this.app.dispatch(`offer:${cid}`, JSON.stringify(encryptedOffer))
+    await Promise.race([once(peer, 'open'), secs(30)])
     try {
-      for await (const { detail: { data } } of on(this, 'data')) {
-        const { answers } = parse(data)
-        const answer = answers.get(this.cid)
-        if (answer) {
-          await peer.receiveAnswer({ type: 'answer', ...answer })
-          await Promise.race([once(peer, 'open'), secs(30)])
-          if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
-          return this.addPeer(peer)
-        }
-      }
+      if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
+      return this.addPeer(peer)
     } catch (error) {
       console.error(error)
     }
@@ -95,9 +123,12 @@ export default class Net extends EventTarget {
   async answerTo (offer) {
     const peer = new Peer()
     try {
-      const answer = await peer.createAnswer({ type: 'offer', ...offer })
-      const msg = this.format(`answer:${offer.cid}`, JSON.stringify(answer.sdp))
-      this.broadcast([msg])
+      const answer = await peer.createAnswer(offer)
+      const encryptedAnswer = await encrypt(
+        JSON.parse(this.app.state.view.keys.get(offer.cid)),
+        JSON.stringify(answer.sdp)
+      )
+      this.app.dispatch(`answer:${offer.cid}`, JSON.stringify(encryptedAnswer))
       await Promise.race([once(peer, 'open'), secs(30)])
       if (!peer.connected) throw new Error(`Connection timeout [by answer to ${offer.cid}].`)
       return this.addPeer(peer)

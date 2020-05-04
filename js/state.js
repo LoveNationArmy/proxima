@@ -10,8 +10,10 @@ import { parse, lines } from './parse.js'
 export default class State {
   constructor (app, data = '') {
     this.app = app
+    this.notices = new Set()
     this.data = new Set(data ? [data] : [
       app.net.format('iam', randomNick()),
+      app.net.format('key', JSON.stringify(app.keys.publicKey)),
       app.net.format('join', '#garden'),
       app.net.format('msg:#garden', 'hello')
     ])
@@ -19,11 +21,19 @@ export default class State {
     this.textareaRows = 1
   }
 
-  get merged () {
-    return new Set([this.app.net.peers.map(peer => lines(peer.data)), ...this.data].flat(Infinity))
+  merge (withNotices, withOut) {
+    let data = [
+      this.app.net.peers.map(peer => lines(peer.data.in)),
+      ...this.data
+    ]
+
+    if (withNotices) data = [data, ...this.notices]
+    if (withOut) data = [data, ...this.app.net.peers.map(peer => lines(peer.data.out))]
+
+    return new Set(data.flat(Infinity))
   }
 
   get view () {
-    return parse(this.merged)
+    return parse(this.merge(true))
   }
 }

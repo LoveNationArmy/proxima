@@ -1,7 +1,7 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import copy from './lib/copy.js'
-import { formatter, lines, merge } from './parse.js'
+import { formatter, lines, diff } from './parse.js'
 
 const OPTIONS = {
   iceServers: []
@@ -11,7 +11,7 @@ export default class Peer extends EventTarget {
   constructor (opts = OPTIONS) {
     super()
     this.cid = null
-    this.data = new Set()
+    this.data = { in: new Set(), out: new Set() }
     this.connected = false
     this.connection = new RTCPeerConnection(opts)
     this.connection.onconnectionstatechange = () => {
@@ -32,8 +32,14 @@ export default class Peer extends EventTarget {
   }
 
   send (data) {
-    const chunk = merge(this.data, data)
-    if (chunk.size) try { this.channel.send([...chunk].join('\r\n')) } catch {}
+    const chunk = new Set([
+      ...diff(this.data.in, data),
+      ...diff(this.data.out, data)
+    ])
+    if (chunk.size) {
+      this.data.out = new Set([...this.data.out, ...chunk])
+      try { this.channel.send([...chunk].join('\r\n')) } catch {}
+    }
   }
 
   async createOffer () {
@@ -70,10 +76,18 @@ export default class Peer extends EventTarget {
     this.format = formatter(this.cid)
     this.connected = true
     emit(this, 'open')
+
+    // data in
     for await (const { data } of this.messages) {
-      const chunk = merge(this.data, [data])
-      if (chunk.size) emit(this, 'data', chunk)
+      const chunk = new Set([
+        ...diff(this.data.in, [data]),
+        ...diff(this.data.out, [data])
+      ])
+      if (chunk.size) {
+        emit(this, 'data', chunk)
+      }
     }
+
     this.close()
   }
 }

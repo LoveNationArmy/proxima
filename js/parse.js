@@ -11,7 +11,8 @@ export function formatter (cid) {
 }
 
 export function parse (data) {
-  const nicks = new Map()
+  const nicks = new Map([['notice', '*** Notice']])
+  const keys = new Map()
   const channels = new Map()
   const offers = new Map()
   const answers = new Map()
@@ -22,32 +23,33 @@ export function parse (data) {
     switch (msg.command) {
       case 're': (map[msg.param].replies = map[msg.param].replies || []).push(msg); break
       case 'iam': nicks.set(msg.cid, msg.text); break
+      case 'key': keys.set(msg.cid, msg.text); break
       case 'join': channel(msg.text).users.add(msg.cid); break
       case 'part': channel(msg.text).users.delete(msg.cid); break
-      case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
-      case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
+      case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+      case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+      case 'connect': break; //console.log('connect', msg.text); break
+      case 'disconnect': break; //console.log('disconnect', msg.text); break
+      case 'notice': channel(msg.param).wall.push(msg); break
       case 'msg': channel(msg.param).wall.push(msg); break
       default: console.error('Malformed message:', msg)
     }
   })
-  return { nicks, channels, offers, answers }
+  return { nicks, keys, channels, offers, answers }
 }
 
 export function lines (data) {
   return [...data].map(chunk => chunk.split('\r\n')).flat(Infinity)
 }
 
-export function merge (target, source) {
-  const chunk = new Set()
+export function diff (target, source) {
+  const set = new Set()
 
-  lines(source).forEach(line => {
-    if (!target.has(line)) {
-      target.add(line)
-      chunk.add(line)
-    }
-  })
+  for (const value of new Set(lines(source)).values()) {
+    if (!target.has(value)) set.add(value)
+  }
 
-  return chunk
+  return set
 }
 
 const parseLine = line => {

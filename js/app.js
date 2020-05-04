@@ -3,17 +3,26 @@ import morphdom from './lib/morphdom.js'
 import randomId from './lib/random-id.js'
 import State from './state.js'
 import Net from './net.js'
+import { formatter } from './parse.js'
+import { generateKeyPair } from './crypto.js'
 
 export default class App {
   constructor (el) {
     this.el = el
     this.app = this
+  }
+
+  async start () {
     this.net = new Net(this)
+    this.keys = await generateKeyPair()
     this.state = new State(this, this.load())
+    this.notice = formatter('notice')
     this.ui = $(UI, this)
     this.net.addEventListener('peer', () => this.render())
     this.net.addEventListener('data', () => this.render())
     document.addEventListener('render', () => this.render())
+    this.net.connect()
+    this.render()
   }
 
   dispatch (...message) {
