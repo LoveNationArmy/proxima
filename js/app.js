@@ -81,13 +81,18 @@ class UI {
         <div class="side">
           <div class="channels">
             ${ $.map([...channels], c => `
-              <div class="channel" onclick="${ this.switchToChannel }('${c}')">${c}</div>
+              <div
+                class="channel ${ $.class({
+                  active: c === this.state.channelView,
+                  dim: !view.channel(c).users.has(this.app.net.cid)
+                }) }"
+                onclick="${ this.switchToChannel }('${c}')">${c}</div>
             `)}
           </div>
           <div class="peers">
             ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid => `
               <div
-                class="peer ${ $.class({ direct: peers.includes(cid) }) }"
+                class="peer ${ $.class({ dim: !peers.includes(cid) }) }"
                 onclick="${ this.offerTo }('${cid}')">
                 ${view.nicks.get(cid) || cid}
               </div>

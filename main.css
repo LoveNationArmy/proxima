@@ -76,6 +76,11 @@ textarea.pre {
   white-space: pre-line;
 }
 
+.active {
+  color: var(--main);
+  font-weight: bold;
+}
+
 .pre {
   white-space: pre;
   font-family: monospace;
@@ -126,10 +131,6 @@ a:visited {
   background: var(--very-light);
   overflow-wrap: break-word;
   overflow-y: scroll;
-}
-
-.side .peer:not(.direct) {
-  color: var(--dark);
 }
 
 /* chatarea */
