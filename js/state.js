@@ -19,6 +19,7 @@ export default class State {
     ])
     this.newPost = ''
     this.textareaRows = 1
+    this.channelView = '#garden'
   }
 
   merge (withNotices, withOut) {

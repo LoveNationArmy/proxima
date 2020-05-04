@@ -82,6 +82,10 @@ textarea.pre {
   font-size: 12px;
 }
 
+.dim {
+  opacity: 0.25;
+}
+
 /* app */
 
 a {

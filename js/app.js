@@ -3,7 +3,7 @@ import morphdom from './lib/morphdom.js'
 import randomId from './lib/random-id.js'
 import State from './state.js'
 import Net from './net.js'
-import { formatter } from './parse.js'
+import { formatter, parse } from './parse.js'
 import { generateKeyPair } from './crypto.js'
 
 export default class App {
@@ -29,7 +29,7 @@ export default class App {
     message = this.net.format(...message)
     console.log('dispatch', message)
     this.state.data.add(message)
-    this.net.broadcast([message], this.net)
+    this.net.broadcast([message], this.net, parse(this.state.merge(false, true)))
     // this.dispatchEvent(new CustomEvent('data', { detail: data }))
   }
 
@@ -72,26 +72,37 @@ class UI {
 
   template () {
     const view = this.state.view
-    const channel = view.channels.get('#garden')
+    const channels = view.channels.keys()
+    const channel = view.channels.get(this.state.channelView)
     const peers = this.app.net.peers.map(peer => peer.cid)
     prevUser = null
     return `
       <div class="app">
         <div class="side">
+          <div class="channels">
+            ${ $.map([...channels], c => `
+              <div class="channel" onclick="${ this.switchToChannel }('${c}')">${c}</div>
+            `)}
+          </div>
           <div class="peers">
-            ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid =>
-              `<div
-                  class="peer ${ $.class({ direct: peers.includes(cid) }) }"
-                  onclick="${ this.offerTo }('${cid}')">
+            ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid => `
+              <div
+                class="peer ${ $.class({ direct: peers.includes(cid) }) }"
+                onclick="${ this.offerTo }('${cid}')">
                 ${view.nicks.get(cid) || cid}
-              </div>`) : '' }
+              </div>
+              `) : '' }
           </div>
         </div>
         <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
-          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
+          ${ $(ChatArea, { view, target: this.state.channelView, app: this.app, state: this.state }) }
         </div>
       </div>
     `
+  }
+
+  switchToChannel (channel) {
+    this.state.channelView = channel
   }
 
   checkScrollBottom () {
@@ -112,7 +123,7 @@ class ChatArea {
     return `
       <div class="chatarea">
         <div class="wall">
-          ${ channel ? $.map(channel.wall, post => $(Post, post, { view })) : ''}
+          ${ channel ? $.map(channel.wall, post => $(Post, post, { view, channel })) : ''}
         </div>
         <div class="chatbar">
           <div class="target">${this.app.net.cid}</div>
@@ -131,7 +142,11 @@ class ChatArea {
 
   createPost () {
     if (!this.state.newPost.length) return
-    this.app.dispatch('msg:#garden', this.state.newPost)
+    if (this.state.newPost[0] === '/') {
+      this.app.dispatch(this.state.newPost.slice(1))
+    } else {
+      this.app.dispatch(`msg:${this.state.channelView}`, this.state.newPost)
+    }
     this.state.newPost = ''
     this.state.textareaRows = 1
   }
@@ -177,14 +192,16 @@ class Post {
     prevTime = parseInt(this.time)
     return `
       <br>
-      <div class="post">
+      <div class="post ${ $.class({ dim: !this.channel.users.has(this.cid) }) }">
         ${ lastPrevUser !== this.cid ? `<a class="user" href="/#~${this.cid}">${htmlescape(this.view.nicks.get(this.cid))}:</a>` : `` }
         ${ prevTime - lastPrevTime > 1000 * 60 ? `
         <info>
           <!-- <time>${new Date(+this.time).toLocaleString()}</time> -->
           <a href="#">reply</a>
         </info>` : '' }
-        <p class="${ this.text.includes('\n') ? 'pre' : '' }">${htmlescape(this.text, this.text.includes('\n'))}</p>
+        <p
+          class="${ $.class({ pre: this.text.includes('\n') }) }"
+          >${htmlescape(this.text, this.text.includes('\n'))}</p>
         ${ $.map(this.replies || [], post => $(Post, { view: this.view, ...post })) }
       </div>
     `

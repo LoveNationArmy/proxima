@@ -35,7 +35,7 @@ export function parse (data) {
       default: console.error('Malformed message:', msg)
     }
   })
-  return { nicks, keys, channels, offers, answers }
+  return { nicks, keys, channel, channels, offers, answers }
 }
 
 export function lines (data) {
@@ -52,7 +52,7 @@ export function diff (target, source) {
   return set
 }
 
-const parseLine = line => {
+export const parseLine = line => {
   let [id, cid, ...rest] = line.split('\t')
   rest = rest.join('\t').split(' ')
   let [command, param] = rest[0].split(':')

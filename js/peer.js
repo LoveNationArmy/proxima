@@ -1,7 +1,7 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import copy from './lib/copy.js'
-import { formatter, lines, diff } from './parse.js'
+import { formatter, lines, diff, parseLine } from './parse.js'
 
 const OPTIONS = {
   iceServers: []
@@ -31,14 +31,28 @@ export default class Peer extends EventTarget {
     emit(this, 'close')
   }
 
-  send (data) {
-    const chunk = new Set([
+  send (data, view) {
+    let chunk = new Set([
       ...diff(this.data.in, data),
       ...diff(this.data.out, data)
     ])
     if (chunk.size) {
-      this.data.out = new Set([...this.data.out, ...chunk])
-      try { this.channel.send([...chunk].join('\r\n')) } catch {}
+      let set = new Set()
+
+      // don't share message if user does not belong to channel
+      for (const line of chunk.values()) {
+        const msg = parseLine(line)
+        if (msg.command === 'msg' && msg.param[0] === '#' && !view.channel(msg.param).users.has(this.cid)) {
+          continue
+        } else {
+          set.add(line)
+        }
+      }
+
+      if (set.size) {
+        this.data.out = new Set([...this.data.out, ...set])
+        try { this.channel.send([...set].join('\r\n')) } catch {}
+      }
     }
   }
 

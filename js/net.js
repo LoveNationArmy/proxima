@@ -30,13 +30,15 @@ export default class Net extends EventTarget {
     // connect
     this.peers.push(peer)
     this.app.dispatch('connect', peer.cid)
-    peer.send(this.app.state.merge(false, true))
+    let snapshot = this.app.state.merge(false, true)
+    peer.send(snapshot, parse(snapshot))
     emit(this, 'peer', peer)
     emit(this, `peer:${peer.cid}`, peer)
 
     // data in
     for await (const { detail: data } of on(peer, 'data', 'close')) {
-      const chunk = diff(this.app.state.merge(false, true), data)
+      snapshot = this.app.state.merge(false, true)
+      const chunk = diff(snapshot, data)
       peer.data.in = new Set([...peer.data.in, ...data])
 
       if (chunk.size) {
@@ -65,7 +67,7 @@ export default class Net extends EventTarget {
             console.error('No such offer peer (double answer attempt?):', answer)
           }
         } else {
-          this.broadcast(data, peer)
+          this.broadcast(data, peer, parse(new Set([...chunk, ...snapshot])))
         }
 
         emit(this, 'data', { data, peer })
@@ -78,8 +80,8 @@ export default class Net extends EventTarget {
     emit(this, 'peer', peer)
   }
 
-  async broadcast (data, peer = {}) {
-    this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data))
+  async broadcast (data, peer = {}, view) {
+    this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data, view))
   }
 
   async lessThanMaxPeers () {
