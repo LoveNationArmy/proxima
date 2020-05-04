@@ -1095,7 +1095,8 @@ a:visited {
   }
 
   function parse (data) {
-    const nicks = new Map();
+    const nicks = new Map([['notice', '*** Notice']]);
+    const keys = new Map();
     const channels = new Map();
     const offers = new Map();
     const answers = new Map();
@@ -1106,32 +1107,33 @@ a:visited {
       switch (msg.command) {
         case 're': (map[msg.param].replies = map[msg.param].replies || []).push(msg); break
         case 'iam': nicks.set(msg.cid, msg.text); break
+        case 'key': keys.set(msg.cid, msg.text); break
         case 'join': channel(msg.text).users.add(msg.cid); break
         case 'part': channel(msg.text).users.delete(msg.cid); break
-        case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
-        case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: JSON.parse(msg.text) }); break
+        case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+        case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+        case 'connect': break; //console.log('connect', msg.text); break
+        case 'disconnect': break; //console.log('disconnect', msg.text); break
+        case 'notice': channel(msg.param).wall.push(msg); break
         case 'msg': channel(msg.param).wall.push(msg); break
         default: console.error('Malformed message:', msg);
       }
     });
-    return { nicks, channels, offers, answers }
+    return { nicks, keys, channels, offers, answers }
   }
 
   function lines (data) {
     return [...data].map(chunk => chunk.split('\r\n')).flat(Infinity)
   }
 
-  function merge (target, source) {
-    const chunk = new Set();
+  function diff (target, source) {
+    const set = new Set();
 
-    lines(source).forEach(line => {
-      if (!target.has(line)) {
-        target.add(line);
-        chunk.add(line);
-      }
-    });
+    for (const value of new Set(lines(source)).values()) {
+      if (!target.has(value)) set.add(value);
+    }
 
-    return chunk
+    return set
   }
 
   const parseLine = line => {
@@ -1152,8 +1154,10 @@ a:visited {
   class State {
     constructor (app, data = '') {
       this.app = app;
+      this.notices = new Set();
       this.data = new Set(data ? [data] : [
         app.net.format('iam', randomNick()),
+        app.net.format('key', JSON.stringify(app.keys.publicKey)),
         app.net.format('join', '#garden'),
         app.net.format('msg:#garden', 'hello')
       ]);
@@ -1161,12 +1165,20 @@ a:visited {
       this.textareaRows = 1;
     }
 
-    get merged () {
-      return new Set([this.app.net.peers.map(peer => lines(peer.data)), ...this.data].flat(Infinity))
+    merge (withNotices, withOut) {
+      let data = [
+        this.app.net.peers.map(peer => lines(peer.data.in)),
+        ...this.data
+      ];
+
+      if (withNotices) data = [data, ...this.notices];
+      if (withOut) data = [data, ...this.app.net.peers.map(peer => lines(peer.data.out))];
+
+      return new Set(data.flat(Infinity))
     }
 
     get view () {
-      return parse(this.merged)
+      return parse(this.merge(true))
     }
   }
 
@@ -1217,7 +1229,7 @@ a:visited {
     return listener
   }
 
-  function secs (n = Math.random() * 10) {
+  function secs (n = Math.random() * 6) {
     return new Promise(resolve => setTimeout(resolve, n * 1000))
   }
 
@@ -1233,7 +1245,7 @@ a:visited {
     constructor (opts = OPTIONS) {
       super();
       this.cid = null;
-      this.data = new Set();
+      this.data = { in: new Set(), out: new Set() };
       this.connected = false;
       this.connection = new RTCPeerConnection(opts);
       this.connection.onconnectionstatechange = () => {
@@ -1254,8 +1266,14 @@ a:visited {
     }
 
     send (data) {
-      const chunk = merge(this.data, data);
-      if (chunk.size) try { this.channel.send([...chunk].join('\r\n')); } catch {}
+      const chunk = new Set([
+        ...diff(this.data.in, data),
+        ...diff(this.data.out, data)
+      ]);
+      if (chunk.size) {
+        this.data.out = new Set([...this.data.out, ...chunk]);
+        try { this.channel.send([...chunk].join('\r\n')); } catch {}
+      }
     }
 
     async createOffer () {
@@ -1292,13 +1310,89 @@ a:visited {
       this.format = formatter(this.cid);
       this.connected = true;
       emit(this, 'open');
+
+      // data in
       for await (const { data } of this.messages) {
-        const chunk = merge(this.data, [data]);
-        if (chunk.size) emit(this, 'data', chunk);
+        const chunk = new Set([
+          ...diff(this.data.in, [data]),
+          ...diff(this.data.out, [data])
+        ]);
+        if (chunk.size) {
+          emit(this, 'data', chunk);
+        }
       }
+
       this.close();
     }
   }
+
+  async function generateKeyPair () {
+    const keyPair = await crypto.subtle.generateKey({
+      name: 'RSA-OAEP',
+      hash: 'SHA-256',
+      modulusLength: 4096,
+      publicExponent: new Uint8Array([1, 0, 1])
+    }, true, ['encrypt', 'decrypt']);
+    return {
+      privateKey: keyPair.privateKey,
+      publicKey: await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+    }
+  }
+
+  async function encrypt (publicKey, text) {
+    publicKey = await crypto.subtle.importKey('jwk', publicKey, {
+      name: 'RSA-OAEP',
+      hash: 'SHA-256'
+    }, true, ['encrypt']);
+
+    const encryptKey = await window.crypto.subtle.generateKey({
+      name: 'AES-GCM',
+      length: 256,
+    }, true, ['encrypt', 'decrypt']);
+
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const textEncrypted = await window.crypto.subtle.encrypt({
+      name: 'AES-GCM',
+      iv
+    }, encryptKey, new TextEncoder().encode(text));
+
+    const exportKey = await crypto.subtle.exportKey('jwk', encryptKey);
+    exportKey.iv = base64.fromArrayBuffer(iv);
+
+    const keyEncrypted = await window.crypto.subtle.encrypt({
+      name: 'RSA-OAEP',
+    }, publicKey, new TextEncoder().encode(JSON.stringify(exportKey)));
+
+    return {
+      text: base64.fromArrayBuffer(new Uint8Array(textEncrypted)),
+      key: base64.fromArrayBuffer(new Uint8Array(keyEncrypted))
+    }
+  }
+
+  async function decrypt (privateKey, encrypted) {
+    const textBuffer = await base64.toArrayBuffer(encrypted.text);
+    const keyBuffer = await base64.toArrayBuffer(encrypted.key);
+
+    const key = JSON.parse(new TextDecoder().decode(await window.crypto.subtle.decrypt({
+      name: 'RSA-OAEP',
+    }, privateKey, keyBuffer)));
+
+    const decryptKey = await crypto.subtle.importKey('jwk', key, {
+      name: 'AES-GCM'
+    }, true, ['encrypt', 'decrypt']);
+
+    const text = new TextDecoder().decode(await window.crypto.subtle.decrypt({
+      name: 'AES-GCM',
+      iv: new Uint8Array(await base64.toArrayBuffer(key.iv))
+    }, decryptKey, textBuffer));
+
+    return text
+  }
+
+  const base64 = {
+    toArrayBuffer: s => fetch(`data:application/octet-binary;base64,${s}`).then(res => res.arrayBuffer()),
+    fromArrayBuffer: b => btoa(String.fromCharCode(...b))
+  };
 
   let base = window.base || 'http://localhost';
 
@@ -1347,6 +1441,7 @@ a:visited {
       this.app = app;
       this.opts = opts;
       this.peers = [];
+      this.offerPeers = new Map();
       this.format = formatter(this.cid);
     }
 
@@ -1357,25 +1452,54 @@ a:visited {
     }
 
     async addPeer (peer) {
-      let msg;
+      // connect
       this.peers.push(peer);
-      msg = peer.format('join', '#garden');
-      this.app.state.data.add(msg);
-      this.broadcast([msg], peer);
-      peer.send(this.app.state.merged);
+      this.app.dispatch('connect', peer.cid);
+      peer.send(this.app.state.merge(false, true));
       emit(this, 'peer', peer);
-      for await (const { detail: data } of on(peer, 'data', 'close')) {
-        const { offers } = parse(data);
-        const offer = offers.get(this.cid);
-        if (offer) this.answerTo(offer);
+      emit(this, `peer:${peer.cid}`, peer);
 
-        this.broadcast(data, peer);
-        emit(this, 'data', { data, peer });
+      // data in
+      for await (const { detail: data } of on(peer, 'data', 'close')) {
+        const chunk = diff(this.app.state.merge(false, true), data);
+        peer.data.in = new Set([...peer.data.in, ...data]);
+
+        if (chunk.size) {
+          const view = parse(chunk);
+          const offer = view.offers.get(this.cid);
+          const answer = view.answers.get(this.cid);
+
+          if (offer) {
+            try {
+              const decryptedOffer = await decrypt(this.app.keys.privateKey, JSON.parse(offer.sdp));
+              this.answerTo({ cid: offer.cid, type: 'offer', sdp: JSON.parse(decryptedOffer) });
+            } catch (error) {
+              console.error('Error while receiving offer:', error);
+            }
+          } else if (answer) {
+            const offerPeer = this.offerPeers.get(answer.cid);
+            if (offerPeer) {
+              try {
+                const decryptedAnswer = await decrypt(this.app.keys.privateKey, JSON.parse(answer.sdp));
+                await offerPeer.receiveAnswer({ cid: answer.cid, type: 'answer', sdp: JSON.parse(decryptedAnswer) });
+                this.offerPeers.delete(answer.cid); // ensure this is not used for double answers
+              } catch (error) {
+                console.error('Error while receiving answer:', error);
+              }
+            } else {
+              console.error('No such offer peer (double answer attempt?):', answer);
+            }
+          } else {
+            this.broadcast(data, peer);
+          }
+
+          emit(this, 'data', { data, peer });
+        }
       }
+
+      // disconnect
       this.peers.splice(this.peers.indexOf(peer), 1);
-      msg = peer.format('part', '#garden');
-      this.app.state.data.add(msg);
-      this.broadcast([msg], peer);
+      this.app.dispatch('disconnect', peer.cid);
       emit(this, 'peer', peer);
     }
 
@@ -1394,7 +1518,7 @@ a:visited {
       while (true) {
         await this.lessThanMaxPeers();
         await this.createPeer(type);
-        await secs(3 + this.peers.length ** 3);
+        await secs(2 + this.peers.length ** 3);
       }
     }
 
@@ -1405,19 +1529,16 @@ a:visited {
 
       const peer = new Peer();
       const offer = await peer.createOffer();
-      const msg = this.format(`offer:${cid}`, JSON.stringify(offer.sdp));
-      this.broadcast([msg]);
+      const encryptedOffer = await encrypt(
+        JSON.parse(this.app.state.view.keys.get(cid)),
+        JSON.stringify(offer.sdp)
+      );
+      this.offerPeers.set(cid, peer);
+      this.app.dispatch(`offer:${cid}`, JSON.stringify(encryptedOffer));
+      await Promise.race([once(peer, 'open'), secs(30)]);
       try {
-        for await (const { detail: { data } } of on(this, 'data')) {
-          const { answers } = parse(data);
-          const answer = answers.get(this.cid);
-          if (answer) {
-            await peer.receiveAnswer({ type: 'answer', ...answer });
-            await Promise.race([once(peer, 'open'), secs(30)]);
-            if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
-            return this.addPeer(peer)
-          }
-        }
+        if (!peer.connected) throw new Error(`Connection timeout [by offer to ${cid}].`)
+        return this.addPeer(peer)
       } catch (error) {
         console.error(error);
       }
@@ -1427,9 +1548,12 @@ a:visited {
     async answerTo (offer) {
       const peer = new Peer();
       try {
-        const answer = await peer.createAnswer({ type: 'offer', ...offer });
-        const msg = this.format(`answer:${offer.cid}`, JSON.stringify(answer.sdp));
-        this.broadcast([msg]);
+        const answer = await peer.createAnswer(offer);
+        const encryptedAnswer = await encrypt(
+          JSON.parse(this.app.state.view.keys.get(offer.cid)),
+          JSON.stringify(answer.sdp)
+        );
+        this.app.dispatch(`answer:${offer.cid}`, JSON.stringify(encryptedAnswer));
         await Promise.race([once(peer, 'open'), secs(30)]);
         if (!peer.connected) throw new Error(`Connection timeout [by answer to ${offer.cid}].`)
         return this.addPeer(peer)
@@ -1525,12 +1649,19 @@ a:visited {
     constructor (el) {
       this.el = el;
       this.app = this;
+    }
+
+    async start () {
       this.net = new Net(this);
+      this.keys = await generateKeyPair();
       this.state = new State(this, this.load());
+      this.notice = formatter('notice');
       this.ui = $(UI, this);
       this.net.addEventListener('peer', () => this.render());
       this.net.addEventListener('data', () => this.render());
       document.addEventListener('render', () => this.render());
+      this.net.connect();
+      this.render();
     }
 
     dispatch (...message) {
@@ -1719,8 +1850,7 @@ a:visited {
               //   `<div class="peer ${inNetwork ? 'in-network' : ''}" ${inNetwork ? `data-cid="${pcid}" onclick="${ this.offerToPeer }(this.dataset.cid)"` : ''}>${htmlescape(nick)}</div>`) }
 
   const app = window.app = new App(container);
-  app.net.connect();
-  app.render();
+  app.start();
 
 }());
 </script>
