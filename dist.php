@@ -100,10 +100,19 @@ textarea.pre {
   white-space: pre-line;
 }
 
+.active {
+  color: var(--main);
+  font-weight: bold;
+}
+
 .pre {
   white-space: pre;
   font-family: monospace;
   font-size: 12px;
+}
+
+.dim {
+  opacity: 0.25;
 }
 
 /* app */
@@ -146,10 +155,6 @@ a:visited {
   background: var(--very-light);
   overflow-wrap: break-word;
   overflow-y: scroll;
-}
-
-.side .peer:not(.direct) {
-  color: var(--dark);
 }
 
 /* chatarea */
@@ -1119,7 +1124,7 @@ a:visited {
         default: console.error('Malformed message:', msg);
       }
     });
-    return { nicks, keys, channels, offers, answers }
+    return { nicks, keys, channel, channels, offers, answers }
   }
 
   function lines (data) {
@@ -1163,6 +1168,7 @@ a:visited {
       ]);
       this.newPost = '';
       this.textareaRows = 1;
+      this.channelView = '#garden';
     }
 
     merge (withNotices, withOut) {
@@ -1265,14 +1271,27 @@ a:visited {
       emit(this, 'close');
     }
 
-    send (data) {
-      const chunk = new Set([
+    send (data, view) {
+      let chunk = new Set([
         ...diff(this.data.in, data),
         ...diff(this.data.out, data)
       ]);
       if (chunk.size) {
-        this.data.out = new Set([...this.data.out, ...chunk]);
-        try { this.channel.send([...chunk].join('\r\n')); } catch {}
+        let set = new Set();
+
+        // don't share message if user does not belong to channel
+        for (const line of chunk.values()) {
+          const msg = parseLine(line);
+          if (msg.command === 'msg' && msg.param[0] === '#' && !view.channel(msg.param).users.has(this.cid)) {
+            continue
+          } else {
+            set.add(line);
+          }
+        }
+        if (set.size) {
+          this.data.out = new Set([...this.data.out, ...set]);
+          try { this.channel.send([...set].join('\r\n')); } catch {}
+        }
       }
     }
 
@@ -1313,6 +1332,11 @@ a:visited {
 
       // data in
       for await (const { data } of this.messages) {
+        if (data === 'syncme') {
+          emit(this, 'syncme');
+          continue
+        }
+
         const chunk = new Set([
           ...diff(this.data.in, [data]),
           ...diff(this.data.out, [data])
@@ -1455,13 +1479,19 @@ a:visited {
       // connect
       this.peers.push(peer);
       this.app.dispatch('connect', peer.cid);
-      peer.send(this.app.state.merge(false, true));
+      const syncPeer = () => {
+        const snapshot = this.app.state.merge(false, true);
+        peer.send(snapshot, parse(snapshot));
+      };
+      peer.addEventListener('syncme', syncPeer);
+      syncPeer();
       emit(this, 'peer', peer);
       emit(this, `peer:${peer.cid}`, peer);
 
       // data in
       for await (const { detail: data } of on(peer, 'data', 'close')) {
-        const chunk = diff(this.app.state.merge(false, true), data);
+        const snapshot = this.app.state.merge(false, true);
+        const chunk = diff(snapshot, data);
         peer.data.in = new Set([...peer.data.in, ...data]);
 
         if (chunk.size) {
@@ -1490,7 +1520,7 @@ a:visited {
               console.error('No such offer peer (double answer attempt?):', answer);
             }
           } else {
-            this.broadcast(data, peer);
+            this.broadcast(data, peer, parse(new Set([...chunk, ...snapshot])));
           }
 
           emit(this, 'data', { data, peer });
@@ -1500,11 +1530,12 @@ a:visited {
       // disconnect
       this.peers.splice(this.peers.indexOf(peer), 1);
       this.app.dispatch('disconnect', peer.cid);
+      peer.removeEventListener('syncme', syncPeer);
       emit(this, 'peer', peer);
     }
 
-    async broadcast (data, peer = {}) {
-      this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data));
+    async broadcast (data, peer = {}, view) {
+      this.peers.filter(p => p.cid !== peer.cid).forEach(peer => peer.send(data, view));
     }
 
     async lessThanMaxPeers () {
@@ -1524,7 +1555,9 @@ a:visited {
 
     async offerTo (cid) {
       if (this.peers.map(peer => peer.cid).includes(cid)) {
-        throw new Error(`Connection to ${cid} aborted, already connected.`)
+        console.error(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`);
+        this.peers.find(peer => peer.cid === cid).channel.send('syncme');
+        return
       }
 
       const peer = new Peer();
@@ -1671,7 +1704,7 @@ a:visited {
       message = this.net.format(...message);
       console.log('dispatch', message);
       this.state.data.add(message);
-      this.net.broadcast([message], this.net);
+      this.net.broadcast([message], this.net, parse(this.state.merge(false, true)));
       // this.dispatchEvent(new CustomEvent('data', { detail: data }))
     }
 
@@ -1714,26 +1747,42 @@ a:visited {
 
     template () {
       const view = this.state.view;
-      const channel = view.channels.get('#garden');
+      const channels = view.channels.keys();
+      const channel = view.channels.get(this.state.channelView);
       const peers = this.app.net.peers.map(peer => peer.cid);
       prevUser = null;
       return `
       <div class="app">
         <div class="side">
+          <div class="channels">
+            ${ $.map([...channels], c => `
+              <div
+                class="channel ${ $.class({
+                  active: c === this.state.channelView,
+                  dim: !view.channel(c).users.has(this.app.net.cid)
+                }) }"
+                onclick="${ this.switchToChannel }('${c}')">${c}</div>
+            `)}
+          </div>
           <div class="peers">
-            ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid =>
-              `<div
-                  class="peer ${ $.class({ direct: peers.includes(cid) }) }"
-                  onclick="${ this.offerTo }('${cid}')">
+            ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid => `
+              <div
+                class="peer ${ $.class({ dim: !peers.includes(cid) }) }"
+                onclick="${ this.offerTo }('${cid}')">
                 ${view.nicks.get(cid) || cid}
-              </div>`) : '' }
+              </div>
+              `) : '' }
           </div>
         </div>
         <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
-          ${ $(ChatArea, { view, target: '#garden', app: this.app, state: this.state }) }
+          ${ $(ChatArea, { view, target: this.state.channelView, app: this.app, state: this.state }) }
         </div>
       </div>
     `
+    }
+
+    switchToChannel (channel) {
+      this.state.channelView = channel;
     }
 
     checkScrollBottom () {
@@ -1754,7 +1803,7 @@ a:visited {
       return `
       <div class="chatarea">
         <div class="wall">
-          ${ channel ? $.map(channel.wall, post => $(Post, post, { view })) : ''}
+          ${ channel ? $.map(channel.wall, post => $(Post, post, { view, channel })) : ''}
         </div>
         <div class="chatbar">
           <div class="target">${this.app.net.cid}</div>
@@ -1773,7 +1822,16 @@ a:visited {
 
     createPost () {
       if (!this.state.newPost.length) return
-      this.app.dispatch('msg:#garden', this.state.newPost);
+      if (this.state.newPost[0] === '/') {
+        const command = this.state.newPost.slice(1).split(' ')[0];
+        const value = this.state.newPost.split(' ').slice(1).join(' ');
+        this.app.dispatch(this.state.newPost.slice(1));
+        if (command === 'join') {
+          this.state.channelView = value;
+        }
+      } else {
+        this.app.dispatch(`msg:${this.state.channelView}`, this.state.newPost);
+      }
       this.state.newPost = '';
       this.state.textareaRows = 1;
     }
@@ -1819,14 +1877,16 @@ a:visited {
       prevTime = parseInt(this.time);
       return `
       <br>
-      <div class="post">
+      <div class="post ${ $.class({ dim: !this.channel.users.has(this.cid) }) }">
         ${ lastPrevUser !== this.cid ? `<a class="user" href="/#~${this.cid}">${htmlescape(this.view.nicks.get(this.cid))}:</a>` : `` }
         ${ prevTime - lastPrevTime > 1000 * 60 ? `
         <info>
           <!-- <time>${new Date(+this.time).toLocaleString()}</time> -->
           <a href="#">reply</a>
         </info>` : '' }
-        <p class="${ this.text.includes('\n') ? 'pre' : '' }">${htmlescape(this.text, this.text.includes('\n'))}</p>
+        <p
+          class="${ $.class({ pre: this.text.includes('\n') }) }"
+          >${htmlescape(this.text, this.text.includes('\n'))}</p>
         ${ $.map(this.replies || [], post => $(Post, { view: this.view, ...post })) }
       </div>
     `
