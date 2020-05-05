@@ -107,7 +107,7 @@ export default class Net extends EventTarget {
   async offerTo (cid) {
     if (this.peers.map(peer => peer.cid).includes(cid)) {
       console.error(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`)
-      this.peers.find(peer => peer.cid).channel.send('syncme')
+      this.peers.find(peer => peer.cid === cid).channel.send('syncme')
       return
     }
 

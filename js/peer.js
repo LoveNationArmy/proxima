@@ -48,7 +48,6 @@ export default class Peer extends EventTarget {
           set.add(line)
         }
       }
-
       if (set.size) {
         this.data.out = new Set([...this.data.out, ...set])
         try { this.channel.send([...set].join('\r\n')) } catch {}

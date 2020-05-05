@@ -148,7 +148,12 @@ class ChatArea {
   createPost () {
     if (!this.state.newPost.length) return
     if (this.state.newPost[0] === '/') {
+      const command = this.state.newPost.slice(1).split(' ')[0]
+      const value = this.state.newPost.split(' ').slice(1).join(' ')
       this.app.dispatch(this.state.newPost.slice(1))
+      if (command === 'join') {
+        this.state.channelView = value
+      }
     } else {
       this.app.dispatch(`msg:${this.state.channelView}`, this.state.newPost)
     }
