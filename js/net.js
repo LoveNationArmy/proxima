@@ -30,14 +30,18 @@ export default class Net extends EventTarget {
     // connect
     this.peers.push(peer)
     this.app.dispatch('connect', peer.cid)
-    let snapshot = this.app.state.merge(false, true)
-    peer.send(snapshot, parse(snapshot))
+    const syncPeer = () => {
+      const snapshot = this.app.state.merge(false, true)
+      peer.send(snapshot, parse(snapshot))
+    }
+    peer.addEventListener('syncme', syncPeer)
+    syncPeer()
     emit(this, 'peer', peer)
     emit(this, `peer:${peer.cid}`, peer)
 
     // data in
     for await (const { detail: data } of on(peer, 'data', 'close')) {
-      snapshot = this.app.state.merge(false, true)
+      const snapshot = this.app.state.merge(false, true)
       const chunk = diff(snapshot, data)
       peer.data.in = new Set([...peer.data.in, ...data])
 
@@ -77,6 +81,7 @@ export default class Net extends EventTarget {
     // disconnect
     this.peers.splice(this.peers.indexOf(peer), 1)
     this.app.dispatch('disconnect', peer.cid)
+    peer.removeEventListener('syncme', syncPeer)
     emit(this, 'peer', peer)
   }
 
@@ -101,7 +106,9 @@ export default class Net extends EventTarget {
 
   async offerTo (cid) {
     if (this.peers.map(peer => peer.cid).includes(cid)) {
-      throw new Error(`Connection to ${cid} aborted, already connected.`)
+      console.error(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`)
+      this.peers.find(peer => peer.cid).channel.send('syncme')
+      return
     }
 
     const peer = new Peer()

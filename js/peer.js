@@ -93,6 +93,11 @@ export default class Peer extends EventTarget {
 
     // data in
     for await (const { data } of this.messages) {
+      if (data === 'syncme') {
+        emit(this, 'syncme')
+        continue
+      }
+
       const chunk = new Set([
         ...diff(this.data.in, [data]),
         ...diff(this.data.out, [data])
