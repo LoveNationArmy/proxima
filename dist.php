@@ -1089,266 +1089,7 @@ a:visited {
     return (Math.random() * 10e6 | 0).toString(36) + (Math.random() * 10e6 | 0).toString(36)
   }
 
-  function formatter (cid) {
-    return (...message) => {
-      return [
-        `${performance.timeOrigin + performance.now()}.${randomId()}`,
-        cid,
-        message.join(' ')
-      ].join('\t')
-    }
-  }
-
-  function parse (data) {
-    const nicks = new Map([['notice', '*** Notice']]);
-    const keys = new Map();
-    const channels = new Map();
-    const offers = new Map();
-    const answers = new Map();
-    const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [] }).get(name);
-    const parsed = lines(data).map(parseLine).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-    const map = parsed.reduce((p, n) => (p[n.id] = n, p), {});
-    parsed.forEach(msg => {
-      switch (msg.command) {
-        case 're': (map[msg.param].replies = map[msg.param].replies || []).push(msg); break
-        case 'iam': nicks.set(msg.cid, msg.text); break
-        case 'key': keys.set(msg.cid, msg.text); break
-        case 'join': channel(msg.text).users.add(msg.cid); break
-        case 'part': channel(msg.text).users.delete(msg.cid); break
-        case 'offer': offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
-        case 'answer': answers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
-        case 'connect': break; //console.log('connect', msg.text); break
-        case 'disconnect': break; //console.log('disconnect', msg.text); break
-        case 'notice': channel(msg.param).wall.push(msg); break
-        case 'msg': channel(msg.param).wall.push(msg); break
-        default: console.error('Malformed message:', msg);
-      }
-    });
-    return { nicks, keys, channel, channels, offers, answers }
-  }
-
-  function lines (data) {
-    return [...data].map(chunk => chunk.split('\r\n')).flat(Infinity)
-  }
-
-  function diff (target, source) {
-    const set = new Set();
-
-    for (const value of new Set(lines(source)).values()) {
-      if (!target.has(value)) set.add(value);
-    }
-
-    return set
-  }
-
-  const parseLine = line => {
-    let [id, cid, ...rest] = line.split('\t');
-    rest = rest.join('\t').split(' ');
-    let [command, param] = rest[0].split(':');
-    let text = rest.slice(1).join(' ');
-    return { id, cid, command, param, text }
-  };
-
-  const randomNick = () => {
-    const nicks = [
-      'john', 'anna', 'bob', 'suzanne', 'joe', 'mary', 'phil', 'julia', 'george', 'kate', 'chris', 'christine'
-    ];
-    return nicks[Math.random() * nicks.length | 0]
-  };
-
-  class State {
-    constructor (app, data = '') {
-      this.app = app;
-      this.notices = new Set();
-      this.data = new Set(data ? [data] : [
-        app.net.format('iam', randomNick()),
-        app.net.format('key', JSON.stringify(app.keys.publicKey)),
-        app.net.format('join', '#garden'),
-        app.net.format('msg:#garden', 'hello')
-      ]);
-      this.newPost = '';
-      this.textareaRows = 1;
-      this.channelView = '#garden';
-    }
-
-    merge (withNotices, withOut) {
-      let data = [
-        this.app.net.peers.map(peer => lines(peer.data.in)),
-        ...this.data
-      ];
-
-      if (withNotices) data = [data, ...this.notices];
-      if (withOut) data = [data, ...this.app.net.peers.map(peer => lines(peer.data.out))];
-
-      return new Set(data.flat(Infinity))
-    }
-
-    get view () {
-      return parse(this.merge(true))
-    }
-  }
-
-  function emit (target, name, data) {
-    return target.dispatchEvent(new CustomEvent(name, { detail: data }))
-  }
-
-  function once (emitter, name) {
-    return new Promise(resolve => emitter.addEventListener(name, resolve, { once: true }))
-  }
-
-  function on (emitter, name, until) {
-    let resolve = () => {}, reject = () => {};
-
-    let needle = 0;
-
-    const listener = event => {
-      listener.events.push(event);
-      resolve(event);
-    };
-
-    listener.events = [];
-
-    listener.end = event => {
-      emitter.removeEventListener(name, listener);
-      listener.ended = true;
-      reject(event);
-    };
-
-    listener[Symbol.asyncIterator] = async function * () {
-      // send events in queue
-      while (needle < listener.events.length) {
-        yield listener.events[needle++];
-      }
-      while (!listener.ended) {
-        try {
-          yield new Promise((...callbacks) => ([resolve, reject] = callbacks));
-        } catch {
-          return
-        }
-      }
-    };
-
-    emitter.addEventListener(name, listener);
-
-    if (until) once(emitter, until).then(listener.end);
-
-    return listener
-  }
-
-  function secs (n = Math.random() * 6) {
-    return new Promise(resolve => setTimeout(resolve, n * 1000))
-  }
-
-  function copy (obj) {
-    return JSON.parse(JSON.stringify(obj))
-  }
-
-  const OPTIONS = {
-    iceServers: []
-  };
-
-  class Peer extends EventTarget {
-    constructor (opts = OPTIONS) {
-      super();
-      this.cid = null;
-      this.data = { in: new Set(), out: new Set() };
-      this.connected = false;
-      this.connection = new RTCPeerConnection(opts);
-      this.connection.onconnectionstatechange = () => {
-        switch (this.connection.connectionState) {
-          case 'disconnected':
-          case 'failed':
-          case 'closed':
-            this.close();
-        }
-      };
-    }
-
-    close () {
-      this.connected = false;
-      try { this.connection.close(); } catch {}
-      try { this.messages.end(); } catch {}
-      emit(this, 'close');
-    }
-
-    send (data, view) {
-      let chunk = new Set([
-        ...diff(this.data.in, data),
-        ...diff(this.data.out, data)
-      ]);
-      if (chunk.size) {
-        let set = new Set();
-
-        // don't share message if user does not belong to channel
-        for (const line of chunk.values()) {
-          const msg = parseLine(line);
-          if (msg.command === 'msg' && msg.param[0] === '#' && !view.channel(msg.param).users.has(this.cid)) {
-            continue
-          } else {
-            set.add(line);
-          }
-        }
-        if (set.size) {
-          this.data.out = new Set([...this.data.out, ...set]);
-          try { this.channel.send([...set].join('\r\n')); } catch {}
-        }
-      }
-    }
-
-    async createOffer () {
-      this.openChannel(this.connection.createDataChannel('data'));
-      await once(this.connection, 'negotiationneeded');
-      const offer = await this.connection.createOffer();
-      return this.createSignal(offer)
-    }
-
-    receiveAnswer (answer) {
-      this.cid = answer.cid;
-      return this.connection.setRemoteDescription(answer)
-    }
-
-    async createAnswer (offer) {
-      this.cid = offer.cid;
-      await this.connection.setRemoteDescription(offer);
-      const answer = await this.connection.createAnswer();
-      once(this.connection, 'datachannel').then(({ channel }) => this.openChannel(channel));
-      return this.createSignal({ ...offer, ...copy(answer) })
-    }
-
-    async createSignal (signal) {
-      signal.sdp = signal.sdp.replace(/a=ice-options:trickle\s\n/g, '');
-      await this.connection.setLocalDescription(signal);
-      await Promise.race([once(this.connection, 'icecandidate'), secs(30)]);
-      return { ...signal, ...copy(this.connection.localDescription) }
-    }
-
-    async openChannel (channel) {
-      this.channel = channel;
-      this.messages = on(this.channel, 'message', 'close');
-      await once(this.channel, 'open');
-      this.format = formatter(this.cid);
-      this.connected = true;
-      emit(this, 'open');
-
-      // data in
-      for await (const { data } of this.messages) {
-        if (data === 'syncme') {
-          emit(this, 'syncme');
-          continue
-        }
-
-        const chunk = new Set([
-          ...diff(this.data.in, [data]),
-          ...diff(this.data.out, [data])
-        ]);
-        if (chunk.size) {
-          emit(this, 'data', chunk);
-        }
-      }
-
-      this.close();
-    }
-  }
+  var seed = new Date().getTime();
 
   async function generateKeyPair () {
     const keyPair = await crypto.subtle.generateKey({
@@ -1418,6 +1159,317 @@ a:visited {
     fromArrayBuffer: b => btoa(String.fromCharCode(...b))
   };
 
+  function formatter (cid) {
+    return (...message) => {
+      return [
+        `${performance.timeOrigin + performance.now()}.${randomId()}`,
+        cid,
+        message.join(' ')
+      ].join('\t')
+    }
+  }
+
+  async function parse (data, filter) {
+    const nicks = new Map([['notice', '*** Notice']]);
+    const keys = new Map();
+    const channels = new Map();
+    const offers = new Map();
+    const answers = new Map();
+    const dataParsed = new Set();
+    const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [] }).get(name);
+    const parsed = lines(data).map(parseLine).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const map = parsed.reduce((p, n) => (p[n.id] = n, p), {});
+    const view = { nicks, keys, channel, channels, offers, answers, parsed };
+    for (const msg of parsed) {
+      if (filter) {
+        const result = await filter({ ...msg, ...view });
+        if (result === false) continue
+      }
+      switch (msg.command) {
+        case 're': (map[msg.target].replies = map[msg.target].replies || []).push(msg); break
+        case 'iam': nicks.set(msg.cid, msg.text); break
+        case 'key': keys.set(msg.cid, msg.text); break
+        case 'join': channel(msg.text).users.add(msg.cid); break
+        case 'part': channel(msg.text).users.delete(msg.cid); break
+        case 'offer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+        case 'answer': break; //answers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+        case 'connect': break; //console.log('connect', msg.text); break
+        case 'disconnect': break; //console.log('disconnect', msg.text); break
+        case 'syncme': break;
+        case 'notice': channel(msg.target).wall.push(msg); break
+        case 'msg': channel(msg.target).wall.push(msg); break
+        default: console.error('Malformed message:', msg); continue
+      }
+      dataParsed.add(format(msg));
+    }
+    return { ...view, data: dataParsed }
+  }
+
+  function format (msg) {
+    return `${[
+    msg.id,
+    msg.cid, [
+      [msg.command, msg.target].filter(Boolean).join(':'),
+      msg.text
+    ].filter(Boolean).join(' ')
+  ].join('\t')}`
+  }
+
+  function lines (data) {
+    return [...data].map(chunk => chunk.split('\r\n')).flat(Infinity)
+  }
+
+  function diff (target, source) {
+    const set = new Set();
+
+    for (const value of new Set(lines(source)).values()) {
+      if (!target.has(value)) set.add(value);
+    }
+
+    return set
+  }
+
+  const parseLine = line => {
+    let [id, cid, ...rest] = line.split('\t');
+    rest = rest.join('\t').split(' ');
+    let [command, target] = rest[0].split(':');
+    let text = rest.slice(1).join(' ');
+    return { id, cid, command, target, text }
+  };
+
+  class Handlers {
+    constructor (app) {
+      this.app = app;
+    }
+
+    handle (data) {
+      if (this[data.command]) return this[data.command](data)
+    }
+
+    async join ({ cid, peer }) {
+      if (peer.cid === cid) {
+        const snapshot = this.app.state.merge(false, true);
+        peer.send(snapshot, await parse(snapshot));
+      }
+    }
+
+    async offer ({ target, cid, text }) {
+      if (target !== this.app.net.cid) return
+
+      const decryptedOffer = await decrypt(this.app.keys.privateKey, JSON.parse(text));
+      this.app.net.answerTo({ cid, type: 'offer', sdp: JSON.parse(decryptedOffer) });
+      return false
+    }
+
+    async answer ({ target, cid, text }) {
+      if (target !== this.app.net.cid) return
+
+      const offerPeer = this.app.net.offerPeers.get(cid);
+      if (offerPeer) {
+        const decryptedAnswer = await decrypt(this.app.keys.privateKey, JSON.parse(text));
+        await offerPeer.receiveAnswer({ cid, type: 'answer', sdp: JSON.parse(decryptedAnswer) });
+        this.app.net.offerPeers.delete(cid); // ensure this is not used for double answers
+      } else {
+        console.error('No such offer peer (double answer attempt?):', answer);
+      }
+      return false
+    }
+
+    async syncme ({ peer }) {
+      const snapshot = this.app.state.merge(false, true);
+      peer.send(snapshot, await parse(snapshot));
+      return false
+    }
+  }
+
+  const randomNick = () => {
+    const nicks = [
+      'john', 'anna', 'bob', 'suzanne', 'joe', 'mary', 'phil', 'julia', 'george', 'kate', 'chris', 'christine'
+    ];
+    return nicks[Math.random() * nicks.length | 0]
+  };
+
+  class State {
+    constructor (app, data = '') {
+      this.app = app;
+      this.notices = new Set();
+      this.data = new Set(data ? [data] : [
+        app.net.format('iam', randomNick()),
+        app.net.format('key', JSON.stringify(app.keys.publicKey)),
+        app.net.format('join', '#garden'),
+        app.net.format('msg:#garden', 'hello')
+      ]);
+      this.newPost = '';
+      this.textareaRows = 1;
+      this.channelView = '#garden';
+    }
+
+    merge (withNotices, withOut) {
+      let data = [
+        this.app.net.peers.map(peer => lines(peer.data.in)),
+        ...this.data
+      ];
+
+      if (withNotices) data = [data, ...this.notices];
+      if (withOut) data = [data, ...this.app.net.peers.map(peer => lines(peer.data.out))];
+
+      return new Set(data.flat(Infinity))
+    }
+  }
+
+  function emit (target, name, data) {
+    return target.dispatchEvent(new CustomEvent(name, { detail: data }))
+  }
+
+  function once (emitter, name) {
+    return new Promise(resolve => emitter.addEventListener(name, resolve, { once: true }))
+  }
+
+  function on (emitter, name, until) {
+    let resolve = () => {}, reject = () => {};
+
+    let needle = 0;
+
+    const listener = event => {
+      listener.events.push(event);
+      resolve(event);
+    };
+
+    listener.events = [];
+
+    listener.end = event => {
+      emitter.removeEventListener(name, listener);
+      listener.ended = true;
+      reject(event);
+    };
+
+    listener[Symbol.asyncIterator] = async function * () {
+      // send events in queue
+      while (needle < listener.events.length) {
+        yield listener.events[needle++];
+      }
+      while (!listener.ended) {
+        try {
+          yield new Promise((...callbacks) => ([resolve, reject] = callbacks));
+        } catch {
+          break
+        }
+      }
+    };
+
+    emitter.addEventListener(name, listener);
+
+    if (until) once(emitter, until).then(listener.end);
+
+    return listener
+  }
+
+  function secs (n = Math.random() * 6) {
+    return new Promise(resolve => setTimeout(resolve, n * 1000))
+  }
+
+  function copy (obj) {
+    return JSON.parse(JSON.stringify(obj))
+  }
+
+  const OPTIONS = {
+    iceServers: []
+  };
+
+  class Peer extends EventTarget {
+    constructor (opts = OPTIONS) {
+      super();
+      this.cid = null;
+      this.data = { in: new Set(), out: new Set() };
+      this.closed = false;
+      this.connected = false;
+      this.connection = new RTCPeerConnection(opts);
+      this.connection.onconnectionstatechange = () => {
+        switch (this.connection.connectionState) {
+          case 'disconnected':
+          case 'failed':
+          case 'closed':
+            this.close();
+        }
+      };
+    }
+
+    close () {
+      if (this.closed) return
+      this.closed = true;
+      this.connected = false;
+      try { this.connection.close(); } catch {}
+      try { this.messages.end(); } catch {}
+      emit(this, 'close');
+    }
+
+    send (data, view) {
+      let chunk = diff(new Set([...this.data.in, ...this.data.out]), data);
+      if (chunk.size) {
+        let set = new Set();
+
+        // don't share message if user does not belong to channel
+        for (const line of chunk.values()) {
+          const msg = parseLine(line);
+          if (msg.command === 'msg' && msg.target[0] === '#' && !view.channel(msg.target).users.has(this.cid)) {
+            continue
+          } else {
+            set.add(line);
+          }
+        }
+        if (set.size) {
+          // console.log('data out:', set)
+          this.data.out = new Set([...this.data.out, ...set]);
+          try { this.channel.send([...set].join('\r\n')); } catch (error) { console.error(error); }
+        }
+      }
+    }
+
+    async createOffer () {
+      this.openChannel(this.connection.createDataChannel('data'));
+      await once(this.connection, 'negotiationneeded');
+      const offer = await this.connection.createOffer();
+      return this.createSignal(offer)
+    }
+
+    receiveAnswer (answer) {
+      this.cid = answer.cid;
+      return this.connection.setRemoteDescription(answer)
+    }
+
+    async createAnswer (offer) {
+      this.cid = offer.cid;
+      await this.connection.setRemoteDescription(offer);
+      const answer = await this.connection.createAnswer();
+      once(this.connection, 'datachannel').then(({ channel }) => this.openChannel(channel));
+      return this.createSignal({ ...offer, ...copy(answer) })
+    }
+
+    async createSignal (signal) {
+      signal.sdp = signal.sdp.replace(/a=ice-options:trickle\s\n/g, '');
+      await this.connection.setLocalDescription(signal);
+      await Promise.race([once(this.connection, 'icecandidate'), secs(30)]);
+      return { ...signal, ...copy(this.connection.localDescription) }
+    }
+
+    async openChannel (channel) {
+      this.channel = channel;
+      this.messages = on(this.channel, 'message', 'close');
+      await once(this.channel, 'open');
+      this.format = formatter(this.cid);
+      this.connected = true;
+      emit(this, 'open');
+
+      // data in
+      for await (const { data } of this.messages) {
+        const chunk = diff(new Set([...this.data.in, ...this.data.out]), [data]);
+        if (chunk.size) emit(this, 'data', chunk);
+      }
+
+      this.close();
+    }
+  }
+
   let base = window.base || 'http://localhost';
 
   const json = res => res.json();
@@ -1455,7 +1507,7 @@ a:visited {
   };
 
   const OPTIONS$1 = {
-    maxPeers: 6
+    maxPeers: 3
   };
 
   class Net extends EventTarget {
@@ -1477,60 +1529,43 @@ a:visited {
 
     async addPeer (peer) {
       // connect
+      if (this.peers.find(p => p.cid === peer.cid)) {
+        // already connected, drop peer
+        console.warn(`Already connected with "${peer.cid}", dropping connection...`);
+        peer.close();
+        return
+      }
       this.peers.push(peer);
       this.app.dispatch('connect', peer.cid);
-      const syncPeer = () => {
-        const snapshot = this.app.state.merge(false, true);
-        peer.send(snapshot, parse(snapshot));
-      };
-      peer.addEventListener('syncme', syncPeer);
-      syncPeer();
+
+      const snapshot = this.app.state.merge(false, true);
+      peer.send(snapshot, await parse(snapshot));
+
       emit(this, 'peer', peer);
       emit(this, `peer:${peer.cid}`, peer);
 
       // data in
       for await (const { detail: data } of on(peer, 'data', 'close')) {
+        // console.log('data in:', data)
         const snapshot = this.app.state.merge(false, true);
         const chunk = diff(snapshot, data);
         peer.data.in = new Set([...peer.data.in, ...data]);
 
         if (chunk.size) {
-          const view = parse(chunk);
-          const offer = view.offers.get(this.cid);
-          const answer = view.answers.get(this.cid);
+          const view = await parse(chunk, msg => this.app.handlers.handle({ ...msg, peer }));
 
-          if (offer) {
-            try {
-              const decryptedOffer = await decrypt(this.app.keys.privateKey, JSON.parse(offer.sdp));
-              this.answerTo({ cid: offer.cid, type: 'offer', sdp: JSON.parse(decryptedOffer) });
-            } catch (error) {
-              console.error('Error while receiving offer:', error);
-            }
-          } else if (answer) {
-            const offerPeer = this.offerPeers.get(answer.cid);
-            if (offerPeer) {
-              try {
-                const decryptedAnswer = await decrypt(this.app.keys.privateKey, JSON.parse(answer.sdp));
-                await offerPeer.receiveAnswer({ cid: answer.cid, type: 'answer', sdp: JSON.parse(decryptedAnswer) });
-                this.offerPeers.delete(answer.cid); // ensure this is not used for double answers
-              } catch (error) {
-                console.error('Error while receiving answer:', error);
-              }
-            } else {
-              console.error('No such offer peer (double answer attempt?):', answer);
-            }
-          } else {
-            this.broadcast(data, peer, parse(new Set([...chunk, ...snapshot])));
+          if (view.data.size) {
+            // console.log('broadcast:', view.data)
+            this.broadcast(view.data, peer, await parse(new Set([...view.data, ...snapshot])));
           }
 
-          emit(this, 'data', { data, peer });
+          emit(this, 'data', { data, view, peer }); // TODO: needed?
         }
       }
 
       // disconnect
       this.peers.splice(this.peers.indexOf(peer), 1);
       this.app.dispatch('disconnect', peer.cid);
-      peer.removeEventListener('syncme', syncPeer);
       emit(this, 'peer', peer);
     }
 
@@ -1549,14 +1584,14 @@ a:visited {
       while (true) {
         await this.lessThanMaxPeers();
         await this.createPeer(type);
-        await secs(2 + this.peers.length ** 3);
+        await secs(2 + this.peers.length ** 3); // TODO: increase this in production
       }
     }
 
     async offerTo (cid) {
       if (this.peers.map(peer => peer.cid).includes(cid)) {
-        console.error(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`);
-        this.peers.find(peer => peer.cid === cid).channel.send('syncme');
+        console.warn(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`);
+        this.peers.find(peer => peer.cid === cid).send([this.format('syncme')], await parse(this.app.state.merge(false, true)));
         return
       }
 
@@ -1616,7 +1651,7 @@ a:visited {
         this.addPeer(peer);
         return
       } catch (error) {
-        console.error(error);
+        console.warn(error);
       }
       peer.close();
     }
@@ -1691,6 +1726,7 @@ a:visited {
       this.net = new Net(this);
       this.keys = await generateKeyPair();
       this.state = new State(this, this.load());
+      this.handlers = new Handlers(this);
       this.notice = formatter('notice');
       this.ui = $(UI, this);
       this.net.addEventListener('peer', () => this.render());
@@ -1700,11 +1736,11 @@ a:visited {
       this.render();
     }
 
-    dispatch (...message) {
+    async dispatch (...message) {
       message = this.net.format(...message);
       console.log('dispatch', message);
       this.state.data.add(message);
-      this.net.broadcast([message], this.net, parse(this.state.merge(false, true)));
+      this.net.broadcast([message], this.net, await parse(this.state.merge(false, true)));
       // this.dispatchEvent(new CustomEvent('data', { detail: data }))
     }
 
@@ -1730,7 +1766,8 @@ a:visited {
       }
     }
 
-    render () {
+    async render () {
+      this.state.view = await parse(this.state.merge(true));
       const html = this.ui.toString(true);
       morphdom(this.el, html, {
         onNodeAdded: this.onrender,
@@ -1949,6 +1986,7 @@ a:visited {
           });
           if (!$offers) {
             http_response_code(404);
+            echo '{}';
             exit(1);
           }
           foreach ($offers as $id) {
@@ -1962,6 +2000,7 @@ a:visited {
           }
           if (!$handle) {
             http_response_code(404);
+            echo '{}';
             exit(1);
           }
         }
