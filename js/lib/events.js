@@ -30,11 +30,7 @@ export function on (emitter, name, until) {
       yield listener.events[needle++]
     }
     while (!listener.ended) {
-      try {
-        yield new Promise((...callbacks) => ([resolve, reject] = callbacks))
-      } catch {
-        return
-      }
+      yield new Promise((...callbacks) => ([resolve, reject] = callbacks))
     }
   }
 
