@@ -34,4 +34,7 @@ clean:
 test:
 	mocha-headless
 
-.PHONY: build dev clean test
+cov:
+	mocha-headless --coverage
+
+.PHONY: build dev clean test cov
