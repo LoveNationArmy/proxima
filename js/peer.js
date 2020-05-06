@@ -12,6 +12,7 @@ export default class Peer extends EventTarget {
     super()
     this.cid = null
     this.data = { in: new Set(), out: new Set() }
+    this.closed = false
     this.connected = false
     this.connection = new RTCPeerConnection(opts)
     this.connection.onconnectionstatechange = () => {
@@ -25,6 +26,8 @@ export default class Peer extends EventTarget {
   }
 
   close () {
+    if (this.closed) return
+    this.closed = true
     this.connected = false
     try { this.connection.close() } catch {}
     try { this.messages.end() } catch {}
@@ -32,25 +35,23 @@ export default class Peer extends EventTarget {
   }
 
   send (data, view) {
-    let chunk = new Set([
-      ...diff(this.data.in, data),
-      ...diff(this.data.out, data)
-    ])
+    let chunk = diff(new Set([...this.data.in, ...this.data.out]), data)
     if (chunk.size) {
       let set = new Set()
 
       // don't share message if user does not belong to channel
       for (const line of chunk.values()) {
         const msg = parseLine(line)
-        if (msg.command === 'msg' && msg.param[0] === '#' && !view.channel(msg.param).users.has(this.cid)) {
+        if (msg.command === 'msg' && msg.target[0] === '#' && !view.channel(msg.target).users.has(this.cid)) {
           continue
         } else {
           set.add(line)
         }
       }
       if (set.size) {
+        // console.log('data out:', set)
         this.data.out = new Set([...this.data.out, ...set])
-        try { this.channel.send([...set].join('\r\n')) } catch {}
+        try { this.channel.send([...set].join('\r\n')) } catch (error) { console.error(error) }
       }
     }
   }
@@ -92,18 +93,8 @@ export default class Peer extends EventTarget {
 
     // data in
     for await (const { data } of this.messages) {
-      if (data === 'syncme') {
-        emit(this, 'syncme')
-        continue
-      }
-
-      const chunk = new Set([
-        ...diff(this.data.in, [data]),
-        ...diff(this.data.out, [data])
-      ])
-      if (chunk.size) {
-        emit(this, 'data', chunk)
-      }
+      const chunk = diff(new Set([...this.data.in, ...this.data.out]), [data])
+      if (chunk.size) emit(this, 'data', chunk)
     }
 
     this.close()

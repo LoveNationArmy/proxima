@@ -1,6 +1,7 @@
 import $ from './lib/element.js'
 import morphdom from './lib/morphdom.js'
 import randomId from './lib/random-id.js'
+import Handlers from './handlers.js'
 import State from './state.js'
 import Net from './net.js'
 import { formatter, parse } from './parse.js'
@@ -16,6 +17,7 @@ export default class App {
     this.net = new Net(this)
     this.keys = await generateKeyPair()
     this.state = new State(this, this.load())
+    this.handlers = new Handlers(this)
     this.notice = formatter('notice')
     this.ui = $(UI, this)
     this.net.addEventListener('peer', () => this.render())
@@ -25,11 +27,11 @@ export default class App {
     this.render()
   }
 
-  dispatch (...message) {
+  async dispatch (...message) {
     message = this.net.format(...message)
     console.log('dispatch', message)
     this.state.data.add(message)
-    this.net.broadcast([message], this.net, parse(this.state.merge(false, true)))
+    this.net.broadcast([message], this.net, await parse(this.state.merge(false, true)))
     // this.dispatchEvent(new CustomEvent('data', { detail: data }))
   }
 
@@ -55,7 +57,8 @@ export default class App {
     }
   }
 
-  render () {
+  async render () {
+    this.state.view = await parse(this.state.merge(true))
     const html = this.ui.toString(true)
     morphdom(this.el, html, {
       onNodeAdded: this.onrender,

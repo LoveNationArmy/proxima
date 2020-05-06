@@ -46,6 +46,7 @@
           });
           if (!$offers) {
             http_response_code(404);
+            echo '{}';
             exit(1);
           }
           foreach ($offers as $id) {
@@ -59,6 +60,7 @@
           }
           if (!$handle) {
             http_response_code(404);
+            echo '{}';
             exit(1);
           }
         }

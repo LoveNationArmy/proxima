@@ -1,12 +1,12 @@
 import { emit, once, on } from './lib/events.js'
 import secs from './lib/secs.js'
 import Peer from './peer.js'
+import { encrypt } from './crypto.js'
 import { formatter, parse, diff } from './parse.js'
-import { encrypt, decrypt } from './crypto.js'
 import * as http from './signal-http.js'
 
 const OPTIONS = {
-  maxPeers: 6
+  maxPeers: 3
 }
 
 export default class Net extends EventTarget {
@@ -28,60 +28,43 @@ export default class Net extends EventTarget {
 
   async addPeer (peer) {
     // connect
+    if (this.peers.find(p => p.cid === peer.cid)) {
+      // already connected, drop peer
+      console.warn(`Already connected with "${peer.cid}", dropping connection...`)
+      peer.close()
+      return
+    }
     this.peers.push(peer)
     this.app.dispatch('connect', peer.cid)
-    const syncPeer = () => {
-      const snapshot = this.app.state.merge(false, true)
-      peer.send(snapshot, parse(snapshot))
-    }
-    peer.addEventListener('syncme', syncPeer)
-    syncPeer()
+
+    const snapshot = this.app.state.merge(false, true)
+    peer.send(snapshot, await parse(snapshot))
+
     emit(this, 'peer', peer)
     emit(this, `peer:${peer.cid}`, peer)
 
     // data in
     for await (const { detail: data } of on(peer, 'data', 'close')) {
+      // console.log('data in:', data)
       const snapshot = this.app.state.merge(false, true)
       const chunk = diff(snapshot, data)
       peer.data.in = new Set([...peer.data.in, ...data])
 
       if (chunk.size) {
-        const view = parse(chunk)
-        const offer = view.offers.get(this.cid)
-        const answer = view.answers.get(this.cid)
+        const view = await parse(chunk, msg => this.app.handlers.handle({ ...msg, peer }))
 
-        if (offer) {
-          try {
-            const decryptedOffer = await decrypt(this.app.keys.privateKey, JSON.parse(offer.sdp))
-            this.answerTo({ cid: offer.cid, type: 'offer', sdp: JSON.parse(decryptedOffer) })
-          } catch (error) {
-            console.error('Error while receiving offer:', error)
-          }
-        } else if (answer) {
-          const offerPeer = this.offerPeers.get(answer.cid)
-          if (offerPeer) {
-            try {
-              const decryptedAnswer = await decrypt(this.app.keys.privateKey, JSON.parse(answer.sdp))
-              await offerPeer.receiveAnswer({ cid: answer.cid, type: 'answer', sdp: JSON.parse(decryptedAnswer) })
-              this.offerPeers.delete(answer.cid) // ensure this is not used for double answers
-            } catch (error) {
-              console.error('Error while receiving answer:', error)
-            }
-          } else {
-            console.error('No such offer peer (double answer attempt?):', answer)
-          }
-        } else {
-          this.broadcast(data, peer, parse(new Set([...chunk, ...snapshot])))
+        if (view.data.size) {
+          // console.log('broadcast:', view.data)
+          this.broadcast(view.data, peer, await parse(new Set([...view.data, ...snapshot])))
         }
 
-        emit(this, 'data', { data, peer })
+        emit(this, 'data', { data, view, peer }) // TODO: needed?
       }
     }
 
     // disconnect
     this.peers.splice(this.peers.indexOf(peer), 1)
     this.app.dispatch('disconnect', peer.cid)
-    peer.removeEventListener('syncme', syncPeer)
     emit(this, 'peer', peer)
   }
 
@@ -100,14 +83,14 @@ export default class Net extends EventTarget {
     while (true) {
       await this.lessThanMaxPeers()
       await this.createPeer(type)
-      await secs(2 + this.peers.length ** 3)
+      await secs(2 + this.peers.length ** 3) // TODO: increase this in production
     }
   }
 
   async offerTo (cid) {
     if (this.peers.map(peer => peer.cid).includes(cid)) {
-      console.error(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`)
-      this.peers.find(peer => peer.cid === cid).channel.send('syncme')
+      console.warn(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`)
+      this.peers.find(peer => peer.cid === cid).send([this.format('syncme')], await parse(this.app.state.merge(false, true)))
       return
     }
 
@@ -167,7 +150,7 @@ export default class Net extends EventTarget {
       this.addPeer(peer)
       return
     } catch (error) {
-      console.error(error)
+      console.warn(error)
     }
     peer.close()
   }

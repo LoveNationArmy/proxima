@@ -33,8 +33,4 @@ export default class State {
 
     return new Set(data.flat(Infinity))
   }
-
-  get view () {
-    return parse(this.merge(true))
-  }
 }
