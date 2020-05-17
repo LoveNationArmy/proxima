@@ -1,5 +1,5 @@
 import $ from './lib/element.js'
-import morphdom from './lib/morphdom.js'
+import dom from './lib/dom.js'
 import randomId from './lib/random-id.js'
 import Handlers from './handlers.js'
 import State from './state.js'
@@ -47,24 +47,10 @@ export default class App {
     this.net.offerTo(cid)
   }
 
-  onrender (el) {
-    if (el instanceof Element) {
-      const expr = el.getAttribute('onrender')
-      if (expr) {
-        const fn = new Function(expr)
-        fn.call(el)
-      }
-    }
-  }
-
   async render () {
     this.state.view = await parse(this.state.merge(true))
     const html = this.ui.toString(true)
-    morphdom(this.el, html, {
-      onNodeAdded: this.onrender,
-      onElUpdated: this.onrender,
-      onAfterElUpdated: this.onrender
-    })
+    dom(this.el, html)
   }
 }
 
@@ -140,7 +126,7 @@ class ChatArea {
             class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
             onkeydown="${ this.processKeyDown }(event)"
             oninput="${ this.processInput }()"
-            rows=${ this.state.textareaRows }>${ this.state.newPost }</textarea>
+            rows=${ this.state.textareaRows }></textarea>
           <button onclick="${ this.createPost }()">send</button>
           <div class="target">${this.target}</div>
         </div>
@@ -160,7 +146,7 @@ class ChatArea {
     } else {
       this.app.dispatch(`msg:${this.state.channelView}`, this.state.newPost)
     }
-    this.state.newPost = ''
+    this.state.newPost = this.value = ''
     this.state.textareaRows = 1
   }
 
