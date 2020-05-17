@@ -3,7 +3,7 @@ import secs from './lib/secs.js'
 export let base = window.base || 'http://localhost'
 
 const json = res => res.json()
-const headers = {
+export const headers = {
   Accept: 'application/json',
   Authorization: `Bearer ${window.token}`
 }

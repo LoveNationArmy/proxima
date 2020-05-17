@@ -32,7 +32,7 @@ export function on (emitter, name, until) {
     while (!listener.ended) {
       try {
         yield new Promise((...callbacks) => ([resolve, reject] = callbacks))
-      } catch {
+      } catch (_) {
         break
       }
     }

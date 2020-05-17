@@ -29,8 +29,8 @@ export default class Peer extends EventTarget {
     if (this.closed) return
     this.closed = true
     this.connected = false
-    try { this.connection.close() } catch {}
-    try { this.messages.end() } catch {}
+    try { this.connection.close() } catch (_) {}
+    try { this.messages.end() } catch (_) {}
     emit(this, 'close')
   }
 
