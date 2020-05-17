@@ -14,6 +14,7 @@ build:
 			-e 'd}' \
 			-i dist.php
 	@rollup main.js --silent --format iife \
+		| terser \
 		| sed \
 			-e '/module/{i <script>' \
 			-e 'r /dev/stdin' \
@@ -32,9 +33,9 @@ clean:
 	rm -rf signals/answers/*
 
 test:
-	mocha-headless
+	@mocha-headless
 
 cov:
-	mocha-headless --coverage
+	@mocha-headless --coverage
 
 .PHONY: build dev clean test cov
