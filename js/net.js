@@ -6,7 +6,7 @@ import { formatter, parse, diff } from './parse.js'
 import * as http from './signal-http.js'
 
 const OPTIONS = {
-  maxPeers: 3
+  maxPeers: 6
 }
 
 export default class Net extends EventTarget {
@@ -36,6 +36,7 @@ export default class Net extends EventTarget {
     }
     this.peers.push(peer)
     this.app.dispatch('connect', peer.cid)
+    this.app.dispatch('join', [this.cid, peer.cid].sort().join())
 
     const snapshot = this.app.state.merge(false, true)
     peer.send(snapshot, await parse(snapshot))
@@ -64,6 +65,7 @@ export default class Net extends EventTarget {
 
     // disconnect
     this.peers.splice(this.peers.indexOf(peer), 1)
+    this.app.dispatch('part', [this.cid, peer.cid].sort().join())
     this.app.dispatch('disconnect', peer.cid)
     emit(this, 'peer', peer)
   }
@@ -88,13 +90,15 @@ export default class Net extends EventTarget {
   }
 
   async offerTo (cid) {
+    this.app.state.channelView = [this.cid, cid].sort().join()
+
     if (this.peers.map(peer => peer.cid).includes(cid)) {
-      console.warn(`Connection to ${cid} aborted, already connected. Trying "syncme" instead.`)
-      this.peers.find(peer => peer.cid === cid).send([this.format('syncme')], await parse(this.app.state.merge(false, true)))
+      console.warn(`Connection to ${cid} aborted, already connected.`)
+      // this.state.channelView = cid
+      // this.peers.find(peer => peer.cid === cid).send([this.format('syncme')], await parse(this.app.state.merge(false, true)))
       return
     }
-
-    const peer = new Peer()
+    const peer = new Peer(this.app)
     const offer = await peer.createOffer()
     const encryptedOffer = await encrypt(
       JSON.parse(this.app.state.view.keys.get(cid)),
@@ -114,7 +118,7 @@ export default class Net extends EventTarget {
   }
 
   async answerTo (offer) {
-    const peer = new Peer()
+    const peer = new Peer(this.app)
     try {
       const answer = await peer.createAnswer(offer)
       const encryptedAnswer = await encrypt(
@@ -133,7 +137,7 @@ export default class Net extends EventTarget {
   }
 
   async createPeer (type) {
-    const peer = new Peer()
+    const peer = new Peer(this.app)
     try {
       if (type === 'offer') {
         const offer = await http.sendOffer(await peer.createOffer())

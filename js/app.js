@@ -50,7 +50,7 @@ export default class App {
   async render () {
     this.state.view = await parse(this.state.merge(true))
     const html = this.ui.toString(true)
-    dom(this.el, html)
+    dom(this.el, html, { trim: true })
   }
 }
 
@@ -69,26 +69,29 @@ class UI {
       <div class="app">
         <div class="side">
           <div class="channels">
-            ${ $.map([...channels], c => `
+            ${ $.map([...channels].filter(c => c[0] === '#'), c => `
               <div
                 class="channel ${ $.class({
                   active: c === this.state.channelView,
                   dim: !view.channel(c).users.has(this.app.net.cid)
                 }) }"
-                onclick="${ this.switchToChannel }('${c}')">${c}</div>
+                onclick="${ this.switchToChannel }('${c}')">${c[0] === '#' ? c : c.split(',').map(cid => view.nicks.get(cid)).join()}</div>
             `)}
           </div>
           <div class="peers">
             ${ channel ? $.map([...channel.users].filter(cid => cid !== this.app.net.cid), cid => `
               <div
-                class="peer ${ $.class({ dim: !peers.includes(cid) }) }"
+                class="peer ${ $.class({
+                  active: this.state.channelView.split(',').includes(cid),
+                  dim: !peers.includes(cid)
+                }) }"
                 onclick="${ this.offerTo }('${cid}')">
                 ${view.nicks.get(cid) || cid}
               </div>
               `) : '' }
           </div>
         </div>
-        <div class="main" onscroll="${ this.checkScrollBottom }()" onrender="${ this.scrollToBottom }()">
+        <div class="main" onscroll="${ this.checkScrollBottom }()" onupdate="${ this.scrollToBottom }()">
           ${ $(ChatArea, { view, target: this.state.channelView, app: this.app, state: this.state }) }
         </div>
       </div>
@@ -128,7 +131,7 @@ class ChatArea {
             oninput="${ this.processInput }()"
             rows=${ this.state.textareaRows }></textarea>
           <button onclick="${ this.createPost }()">send</button>
-          <div class="target">${this.target}</div>
+          <div class="target">${this.target[0] === '#' ? this.target : view.nicks.get(this.target.split(',').find(cid => cid !== this.app.net.cid))}</div>
         </div>
       </div>
     `

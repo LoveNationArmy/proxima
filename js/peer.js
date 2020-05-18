@@ -8,8 +8,9 @@ const OPTIONS = {
 }
 
 export default class Peer extends EventTarget {
-  constructor (opts = OPTIONS) {
+  constructor (app, opts = OPTIONS) {
     super()
+    this.app = app
     this.cid = null
     this.data = { in: new Set(), out: new Set() }
     this.closed = false
@@ -39,12 +40,19 @@ export default class Peer extends EventTarget {
     if (chunk.size) {
       let set = new Set()
 
-      // don't share message if user does not belong to channel
       for (const line of chunk.values()) {
         const msg = parseLine(line)
-        if (msg.command === 'msg' && msg.target[0] === '#' && !view.channel(msg.target).users.has(this.cid)) {
+        // don't share message if user does not belong to channel
+        if (msg.command === 'msg' && !view.channel(msg.target).users.has(this.cid)) {
           continue
-        } else {
+        }
+        // don't share message if direction connection is not with that user
+        else if ((msg.command === 'join' || msg.command === 'part') &&
+          msg.text[0] !== '#' && !msg.text.split(',').find(cid => cid === this.cid)) {
+          continue
+        }
+        // add anything else
+        else {
           set.add(line)
         }
       }
