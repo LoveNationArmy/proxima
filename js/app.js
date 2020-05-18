@@ -6,11 +6,19 @@ import State from './state.js'
 import Net from './net.js'
 import { formatter, parse } from './parse.js'
 import { generateKeyPair } from './crypto.js'
+import { once } from './lib/events.js'
 
 export default class App {
   constructor (el) {
     this.el = el
     this.app = this
+    this.videoSettings = {
+      resizeMode: 'crop-and-scale',
+      facingMode: 'user',
+      frameRate: 24,
+      width: 176,
+      height: 144
+    }
   }
 
   async start () {
@@ -117,10 +125,16 @@ class ChatArea {
   template () {
     const view = this.view
     const channel = this.view.channels.get(this.target)
-    return `
+    const peerCid = this.target.split(',').find(cid => cid !== this.app.net.cid)
+    const peer = this.app.net.peers.find(peer => peer.cid === peerCid)
+    return channel ? `
       <div class="chatarea">
         <div class="wall">
-          ${ channel ? $.map(channel.wall, post => $(Post, post, { view, channel })) : ''}
+          ${ peer && peer.localStream ? `<div class="streams">` : ''}
+          ${ peer && peer.localStream ? `<video id="localVideo" onrender="${ this.setStream }('local')" autoplay playsinline muted style="transform: scaleX(-1)"></video>` : '' }
+          ${ peer && peer.remoteStream ? `<video id="remoteVideo" onrender="${ this.setStream }('remote')" autoplay playsinline muted></video>` : '' }
+          ${ peer && peer.localStream ? `</div>` : ''}
+          ${ $.map(channel.wall, post => $(Post, post, { view, channel })) }
         </div>
         <div class="chatbar">
           <div class="target">${this.app.net.cid}</div>
@@ -131,10 +145,42 @@ class ChatArea {
             oninput="${ this.processInput }()"
             rows=${ this.state.textareaRows }></textarea>
           <button onclick="${ this.createPost }()">send</button>
+          ${ peer ? `
+            <button onclick="${ this.toggleVideo }()" class="${ $.class({ active: peer.localStream || peer.remoteStream }) }">📹</button>
+            <button onclick="${ this.toggleAudio }()">🎙️</button>
+          ` : '' }
           <div class="target">${this.target[0] === '#' ? this.target : view.nicks.get(this.target.split(',').find(cid => cid !== this.app.net.cid))}</div>
         </div>
       </div>
-    `
+    ` : ''
+  }
+
+  setStream (type) {
+    const peerCid = this.target.split(',').find(cid => cid !== this.app.net.cid)
+    const peer = this.app.net.peers.find(peer => peer.cid === peerCid)
+    this.srcObject = null
+    this.srcObject = peer[type + 'Stream']
+  }
+
+  async toggleVideo () {
+    const peerCid = this.target.split(',').find(cid => cid !== this.app.net.cid)
+    const peer = this.app.net.peers.find(peer => peer.cid === peerCid)
+
+    peer.localStream = await navigator.mediaDevices.getUserMedia({
+      video: this.app.videoSettings
+    })
+
+    const videoTracks = peer.localStream.getVideoTracks()
+    peer.connection.addTrack(videoTracks[0], peer.localStream)
+    const offer = await peer.connection.createOffer()
+    offer.sdp = offer.sdp.replace(/a=ice-options:trickle\s\n/g, '')
+    await peer.connection.setLocalDescription(offer)
+    await once(peer.connection, 'icecandidate')
+    this.app.dispatch(`trackoffer:${peerCid}`, JSON.stringify(peer.connection.localDescription))
+  }
+
+  toggleAudio () {
+
   }
 
   createPost () {
@@ -210,7 +256,7 @@ class Post {
   }
 }
 
-function htmlescape (text, initialSpace) {
+function htmlescape (text = '', initialSpace = false) {
   text = text.replace(/&/g,'&amp;').replace(/</g,'&lt;')
   if (initialSpace) text = text.replace(/ /,'&nbsp;')
   return text

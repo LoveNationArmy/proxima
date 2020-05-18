@@ -58,6 +58,7 @@ button {
   border: 1px solid var(--light);
   color: var(--text);
   padding: 2px 6px;
+  height: 21px;
 }
 
 button:active {
@@ -146,6 +147,32 @@ a:visited {
 .wall {
   padding: 10px;
   overflow-wrap: break-word;
+}
+
+/* streams */
+
+.streams {
+  position: fixed;
+  display: flex;
+  top: 5px;
+  right: 5px;
+  flex-flow: row nowrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.streams video {
+  margin: 5px;
+  width: 100%;
+}
+
+.streams #localVideo {
+  width: 100px;
+}
+
+.streams #remoteVideo {
+  width: 300px;
+  /*min-height: 100%;*/
 }
 
 /* chatbar */

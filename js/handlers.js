@@ -1,6 +1,7 @@
 import random from './lib/seedable-random.js'
 import { decrypt } from './crypto.js'
 import { parse } from './parse.js'
+import { once } from './lib/events.js'
 
 export default class Handlers {
   constructor (app) {
@@ -38,6 +39,32 @@ export default class Handlers {
       console.error('No such offer peer (double answer attempt?):', answer)
     }
     return false
+  }
+
+  async trackoffer ({ peer, target, cid, text }) {
+    if (target !== this.app.net.cid) return
+    if (peer.cid !== cid) return
+
+    await peer.connection.setRemoteDescription(JSON.parse(text))
+
+    peer.localStream = await navigator.mediaDevices.getUserMedia({
+      video: this.app.videoSettings
+    })
+
+    const videoTracks = peer.localStream.getVideoTracks()
+    peer.connection.addTrack(videoTracks[0], peer.localStream)
+    const answer = await peer.connection.createAnswer()
+    answer.sdp = answer.sdp.replace(/a=ice-options:trickle\s\n/g, '')
+    await peer.connection.setLocalDescription(answer)
+    await once(peer.connection, 'icecandidate')
+    this.app.dispatch(`trackanswer:${cid}`, JSON.stringify(peer.connection.localDescription))
+  }
+
+  async trackanswer ({ peer, target, cid, text }) {
+    if (target !== this.app.net.cid) return
+    if (peer.cid !== cid) return
+
+    await peer.connection.setRemoteDescription(JSON.parse(text))
   }
 
   async syncme ({ peer }) {

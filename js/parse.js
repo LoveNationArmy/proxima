@@ -17,7 +17,7 @@ export async function parse (data, filter) {
   const offers = new Map()
   const answers = new Map()
   const dataParsed = new Set()
-  const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [] }).get(name)
+  const channel = name => channels.set(name, channels.get(name) || { users: new Set(), wall: [], video: false, audio: false }).get(name)
   const parsed = lines(data).map(parseLine).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   const map = parsed.reduce((p, n) => (p[n.id] = n, p), {})
   const view = { nicks, keys, channel, channels, offers, answers, parsed }
@@ -34,6 +34,8 @@ export async function parse (data, filter) {
       case 'part': channel(msg.text).users.delete(msg.cid); break
       case 'offer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
       case 'answer': break; //answers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+      case 'trackoffer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+      case 'trackanswer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
       case 'connect': break; //console.log('connect', msg.text); break
       case 'disconnect': break; //console.log('disconnect', msg.text); break
       case 'syncme': break;

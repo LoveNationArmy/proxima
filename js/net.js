@@ -27,6 +27,8 @@ export default class Net extends EventTarget {
   }
 
   async addPeer (peer) {
+    let snapshot
+
     // connect
     if (this.peers.find(p => p.cid === peer.cid)) {
       // already connected, drop peer
@@ -38,7 +40,7 @@ export default class Net extends EventTarget {
     this.app.dispatch('connect', peer.cid)
     this.app.dispatch('join', [this.cid, peer.cid].sort().join())
 
-    const snapshot = this.app.state.merge(false, true)
+    snapshot = this.app.state.merge(false, true)
     peer.send(snapshot, await parse(snapshot))
 
     emit(this, 'peer', peer)
@@ -46,20 +48,20 @@ export default class Net extends EventTarget {
 
     // data in
     for await (const { detail: data } of on(peer, 'data', 'close')) {
-      // console.log('data in:', data)
-      const snapshot = this.app.state.merge(false, true)
+      snapshot = this.app.state.merge(false, true)
       const chunk = diff(snapshot, data)
       peer.data.in = new Set([...peer.data.in, ...data])
 
       if (chunk.size) {
-        const view = await parse(chunk, msg => this.app.handlers.handle({ ...msg, peer }))
+        parse(chunk, msg => this.app.handlers.handle({ ...msg, peer }))
+          .then(async view => {
+            if (view.data.size) {
+              // console.log('broadcast:', view.data)
+              this.broadcast(view.data, peer, await parse(new Set([...view.data, ...snapshot])))
+            }
 
-        if (view.data.size) {
-          // console.log('broadcast:', view.data)
-          this.broadcast(view.data, peer, await parse(new Set([...view.data, ...snapshot])))
-        }
-
-        emit(this, 'data', { data, view, peer }) // TODO: needed?
+            emit(this, 'data', { data, view, peer }) // TODO: needed?
+          })
       }
     }
 

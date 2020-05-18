@@ -24,6 +24,9 @@ export default class Peer extends EventTarget {
           this.close()
       }
     }
+    this.connection.ontrack = e => {
+      this.remoteStream = e.streams[0]
+    }
   }
 
   close () {
@@ -43,12 +46,16 @@ export default class Peer extends EventTarget {
       for (const line of chunk.values()) {
         const msg = parseLine(line)
         // don't share message if user does not belong to channel
-        if (msg.command === 'msg' && !view.channel(msg.target).users.has(this.cid)) {
+        if (msg.command === 'msg' && msg.text[0] === '#' && !view.channel(msg.target).users.has(this.cid)) {
           continue
         }
         // don't share message if direction connection is not with that user
         else if ((msg.command === 'join' || msg.command === 'part') &&
           msg.text[0] !== '#' && !msg.text.split(',').find(cid => cid === this.cid)) {
+          continue
+        }
+        else if ((msg.command === 'trackoffer' || msg.command === 'trackanswer') &&
+          msg.target !== this.cid) {
           continue
         }
         // add anything else
