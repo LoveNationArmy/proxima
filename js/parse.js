@@ -34,6 +34,8 @@ export async function parse (data, filter) {
       case 'part': channel(msg.text).users.delete(msg.cid); break
       case 'offer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
       case 'answer': break; //answers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+      case 'trackend': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
+      case 'trackendanswer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
       case 'trackoffer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
       case 'trackanswer': break; //offers.set(msg.param, { cid: msg.cid, sdp: msg.text }); break
       case 'connect': break; //console.log('connect', msg.text); break

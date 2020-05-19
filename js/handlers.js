@@ -41,22 +41,40 @@ export default class Handlers {
     return false
   }
 
+  async trackendanswer ({ peer, target, cid, text }) {
+    if (target !== this.app.net.cid) return
+    if (peer.cid !== cid) return
+
+    const kind = text.split(' ')[0]
+    text = text.split(' ').slice(1).join(' ')
+    await peer.connection.setRemoteDescription(JSON.parse(text))
+    peer.removeStream(kind)
+  }
+
+  async trackend ({ peer, target, cid, text }) {
+    if (target !== this.app.net.cid) return
+    if (peer.cid !== cid) return
+
+    const kind = text.split(' ')[0]
+    text = text.split(' ').slice(1).join(' ')
+    await peer.connection.setRemoteDescription(JSON.parse(text))
+    if (peer.removeStream(kind)) {
+      const answer = await peer.connection.createAnswer()
+      await peer.connection.setLocalDescription(answer)
+      this.app.dispatch(`trackendanswer:${cid}`, kind, JSON.stringify(peer.connection.localDescription))
+    }
+  }
+
   async trackoffer ({ peer, target, cid, text }) {
     if (target !== this.app.net.cid) return
     if (peer.cid !== cid) return
 
+    const kind = text.split(' ')[0]
+    text = text.split(' ').slice(1).join(' ')
     await peer.connection.setRemoteDescription(JSON.parse(text))
-
-    peer.localStream = await navigator.mediaDevices.getUserMedia({
-      video: this.app.videoSettings
-    })
-
-    const videoTracks = peer.localStream.getVideoTracks()
-    peer.connection.addTrack(videoTracks[0], peer.localStream)
+    await peer.addStream(kind)
     const answer = await peer.connection.createAnswer()
-    answer.sdp = answer.sdp.replace(/a=ice-options:trickle\s\n/g, '')
     await peer.connection.setLocalDescription(answer)
-    await once(peer.connection, 'icecandidate')
     this.app.dispatch(`trackanswer:${cid}`, JSON.stringify(peer.connection.localDescription))
   }
 

@@ -25,8 +25,17 @@ build:
 dev:
 	@live-server --ignorePattern=signals --entry-file=main.html
 
+dev-https:
+	@live-server --https=/home/stagas/.nvm/versions/node/v12.9.1/lib/node_modules/live-server-https --ignorePattern=signals --entry-file=main.html
+
 php: clean build
 	@php -S 0.0.0.0:1337 dist.php
+
+php-https: clean build stunnel.pem
+	@php -S 0.0.0.0:1337 dist.php & sudo stunnel3 -d 443 -r 1337 -p ./stunnel.pem -f
+
+stunnel.pem:
+	@openssl req -new -x509 -days 365 -nodes -out stunnel.pem -keyout stunnel.pem
 
 clean:
 	rm -rf signals/offers/*
@@ -35,7 +44,7 @@ clean:
 test:
 	@mocha-headless
 
-cov:
+test-cov:
 	@mocha-headless --coverage
 
-.PHONY: build dev clean test cov
+.PHONY: build dev dev-https clean test test-cov

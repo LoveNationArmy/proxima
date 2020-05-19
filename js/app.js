@@ -12,13 +12,6 @@ export default class App {
   constructor (el) {
     this.el = el
     this.app = this
-    this.videoSettings = {
-      resizeMode: 'crop-and-scale',
-      facingMode: 'user',
-      frameRate: 24,
-      width: 176,
-      height: 144
-    }
   }
 
   async start () {
@@ -37,7 +30,7 @@ export default class App {
 
   async dispatch (...message) {
     message = this.net.format(...message)
-    console.log('dispatch', message)
+    // console.log('dispatch', message)
     this.state.data.add(message)
     this.net.broadcast([message], this.net, await parse(this.state.merge(false, true)))
     // this.dispatchEvent(new CustomEvent('data', { detail: data }))
@@ -131,8 +124,8 @@ class ChatArea {
       <div class="chatarea">
         <div class="wall">
           ${ peer && peer.localStream ? `<div class="streams">` : ''}
-          ${ peer && peer.localStream ? `<video id="localVideo" onrender="${ this.setStream }('local')" autoplay playsinline muted style="transform: scaleX(-1)"></video>` : '' }
-          ${ peer && peer.remoteStream ? `<video id="remoteVideo" onrender="${ this.setStream }('remote')" autoplay playsinline muted></video>` : '' }
+          ${ peer && peer.localStream ? `<video id="localVideo" onrender="${ this.setStream }('local')" autoplay playsinline style="transform: scaleX(-1)"></video>` : '' }
+          ${ peer && peer.remoteStream ? `<video id="remoteVideo" onrender="${ this.setStream }('remote')" autoplay playsinline ${peer.remoteStream.getAudioTracks().length ? 'controls' : ''}></video>` : '' }
           ${ peer && peer.localStream ? `</div>` : ''}
           ${ $.map(channel.wall, post => $(Post, post, { view, channel })) }
         </div>
@@ -146,8 +139,14 @@ class ChatArea {
             rows=${ this.state.textareaRows }></textarea>
           <button onclick="${ this.createPost }()">send</button>
           ${ peer ? `
-            <button onclick="${ this.toggleVideo }()" class="${ $.class({ active: peer.localStream || peer.remoteStream }) }">📹</button>
-            <button onclick="${ this.toggleAudio }()">🎙️</button>
+            <button onclick="${ this.toggleStream }('video')" class="${ $.class({
+              active: (peer.localStream && peer.localStream.getVideoTracks().length)
+                   || (peer.remoteStream && peer.remoteStream.getVideoTracks().length)
+              }) }">📹</button>
+            <button onclick="${ this.toggleStream }('audio')" class="${ $.class({
+              active: (peer.localStream && peer.localStream.getAudioTracks().length)
+                   || (peer.remoteStream && peer.remoteStream.getAudioTracks().length)
+              }) }">🎙️</button>
           ` : '' }
           <div class="target">${this.target[0] === '#' ? this.target : view.nicks.get(this.target.split(',').find(cid => cid !== this.app.net.cid))}</div>
         </div>
@@ -155,32 +154,34 @@ class ChatArea {
     ` : ''
   }
 
-  setStream (type) {
+  setStream (kind) {
     const peerCid = this.target.split(',').find(cid => cid !== this.app.net.cid)
     const peer = this.app.net.peers.find(peer => peer.cid === peerCid)
+    this.muted = null
+    this.muted = kind === 'local'
+    this.controls = null
+    this.controls = kind === 'remote'
     this.srcObject = null
-    this.srcObject = peer[type + 'Stream']
+    this.srcObject = peer[kind + 'Stream']
   }
 
-  async toggleVideo () {
+  async toggleStream (kind) {
     const peerCid = this.target.split(',').find(cid => cid !== this.app.net.cid)
     const peer = this.app.net.peers.find(peer => peer.cid === peerCid)
 
-    peer.localStream = await navigator.mediaDevices.getUserMedia({
-      video: this.app.videoSettings
-    })
-
-    const videoTracks = peer.localStream.getVideoTracks()
-    peer.connection.addTrack(videoTracks[0], peer.localStream)
-    const offer = await peer.connection.createOffer()
-    offer.sdp = offer.sdp.replace(/a=ice-options:trickle\s\n/g, '')
-    await peer.connection.setLocalDescription(offer)
-    await once(peer.connection, 'icecandidate')
-    this.app.dispatch(`trackoffer:${peerCid}`, JSON.stringify(peer.connection.localDescription))
-  }
-
-  toggleAudio () {
-
+    if (peer.localStream && peer.localStream.getTracks().filter(track => track.kind === kind).length) {
+      peer.removeStream(kind)
+      // await once(peer.connection, 'negotiationneeded')
+      const offer = await peer.connection.createOffer()
+      await peer.connection.setLocalDescription(offer)
+      this.app.dispatch(`trackend:${peerCid}`, kind, JSON.stringify(peer.connection.localDescription))
+    } else {
+      await peer.addStream(kind)
+      // await once(peer.connection, 'negotiationneeded')
+      const offer = await peer.connection.createOffer()
+      await peer.connection.setLocalDescription(offer)
+      this.app.dispatch(`trackoffer:${peerCid}`, kind, JSON.stringify(peer.connection.localDescription))
+    }
   }
 
   createPost () {
