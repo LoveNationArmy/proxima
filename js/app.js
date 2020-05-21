@@ -24,8 +24,14 @@ export default class App {
     this.net.addEventListener('peer', () => this.render())
     this.net.addEventListener('data', () => this.render())
     document.addEventListener('render', () => this.render())
+    window.addEventListener('resize', () => this.resize())
+    // once(window, 'touchstart').then(() => this.toggleFullscreen())
     this.net.connect()
+    this.resize()
     this.render()
+    if (this.isMobile) {
+      // once(window, 'mousedown').then(() => this.toggleFullscreen())
+    }
   }
 
   async dispatch (...message) {
@@ -46,6 +52,19 @@ export default class App {
 
   offerTo (cid) {
     this.net.offerTo(cid)
+  }
+
+  async toggleFullscreen () {
+    // if (!document.fullscreenElement) {
+      await this.el.requestFullscreen()
+    // }
+    // else {
+    //   document.exitFullscreen()
+    // }
+  }
+
+  resize () {
+    this.isMobile = window.innerWidth < 600
   }
 
   async render () {
@@ -122,28 +141,28 @@ class ChatArea {
     const peer = this.app.net.peers.find(peer => peer.cid === peerCid)
     return channel ? `
       <div class="chatarea">
+        ${ peer && peer.localStream ? `<div class="streams">` : ''}
+        ${ peer && peer.localStream ? `<video id="localVideo" onupdate="${ this.setStream }('local')" autoplay playsinline style="transform: scaleX(-1)"></video>` : '' }
+        ${ peer && peer.remoteStream ? `<video id="remoteVideo" onupdate="${ this.setStream }('remote')" autoplay playsinline ${peer.remoteStream.getAudioTracks().length ? 'controls' : ''}></video>` : '' }
+        ${ peer && peer.localStream ? `</div>` : ''}
         <div class="wall">
-          ${ peer && peer.localStream ? `<div class="streams">` : ''}
-          ${ peer && peer.localStream ? `<video id="localVideo" onupdate="${ this.setStream }('local')" autoplay playsinline style="transform: scaleX(-1)"></video>` : '' }
-          ${ peer && peer.remoteStream ? `<video id="remoteVideo" onupdate="${ this.setStream }('remote')" autoplay playsinline ${peer.remoteStream.getAudioTracks().length ? 'controls' : ''}></video>` : '' }
-          ${ peer && peer.localStream ? `</div>` : ''}
           ${ $.map(channel.wall, post => $(Post, post, { view, channel })) }
         </div>
         <div class="chatbar">
           <div class="target">${this.app.net.cid}</div>
           <div class="nick">${ view.nicks.get(this.app.net.cid) }</div>
           <textarea
-            class="${ $.class({ pre: this.state.textareaRows > 1 }) }"
+            class="${ $.class({ pre: this.state.newPost.includes('\n') }) }"
             onkeydown="${ this.processKeyDown }(event)"
             oninput="${ this.processInput }()"
             rows=${ this.state.textareaRows }></textarea>
           <button onclick="${ this.createPost }()">send</button>
           ${ peer ? `
-            <button onclick="${ this.toggleStream }('video')" class="${ $.class({
+            <button onclick="${ this.toggleStream }('video')" class="stream-toggle ${ $.class({
               active: (peer.localStream && peer.localStream.getVideoTracks().length)
                    || (peer.remoteStream && peer.remoteStream.getVideoTracks().length)
               }) }">📹</button>
-            <button onclick="${ this.toggleStream }('audio')" class="${ $.class({
+            <button onclick="${ this.toggleStream }('audio')" class="stream-toggle ${ $.class({
               active: (peer.localStream && peer.localStream.getAudioTracks().length)
                    || (peer.remoteStream && peer.remoteStream.getAudioTracks().length)
               }) }">🎙️</button>
@@ -161,8 +180,11 @@ class ChatArea {
     this.muted = kind === 'local'
     this.controls = null
     this.controls = kind === 'remote' && peer.remoteStream.getAudioTracks().length > 0
-    this.srcObject = null
-    this.srcObject = peer[kind + 'Stream']
+    const stream = peer[kind + 'Stream']
+    if (this.srcObject !== stream) {
+      this.srcObject = null
+      this.srcObject = peer[kind + 'Stream']
+    }
     return false
   }
 
@@ -197,8 +219,11 @@ class ChatArea {
     } else {
       this.app.dispatch(`msg:${this.state.channelView}`, this.state.newPost)
     }
-    this.state.newPost = this.value = ''
+    this.state.newPost = ''
     this.state.textareaRows = 1
+    const textarea = document.querySelector('textarea')
+    textarea.value = ''
+    textarea.focus()
   }
 
   processKeyDown (event) {

@@ -1,14 +1,19 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <title>proxima</title>
-    <link rel="stylesheet" href="./main.css">
-  </head>
-  <body class="dark">
-    <div id="container"></div>
-    <script>window.base = document.location.origin</script>
-    <script>localStorage.token = window.token = localStorage.token || '<?php echo bin2hex(random_bytes(16)) ?>'</script>
-    <script type="module">import randomId from './js/lib/random-id.js'; localStorage.token = window.token = randomId(); window.base = 'http://localhost'</script><script type="module" src="./main.js"></script>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, height=0px, initial-scale=1.0">
+<meta name="theme-color" content="#2c2c2c">
+<meta name="msapplication-navbutton-color" content="#2c2c2c">
+<meta name="apple-mobile-web-app-status-bar-style" content="#2c2c2c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>proxima</title>
+<link rel="stylesheet" href="./main.css">
+</head>
+<body class="dark">
+<div id="container"></div>
+<script>window.base = `//${document.location.hostname}`</script>
+<script>localStorage.token = window.token = localStorage.token || '<?php echo bin2hex(random_bytes(16)) ?>'</script>
+<script type="module">import randomId from './js/lib/random-id.js'; localStorage.token = window.token = randomId();</script><script type="module" src="./main.js"></script>
+</body>
 </html>

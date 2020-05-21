@@ -26,7 +26,8 @@ dev:
 	@live-server --ignorePattern=signals --entry-file=main.html
 
 dev-https:
-	@live-server --https=/home/stagas/.nvm/versions/node/v12.9.1/lib/node_modules/live-server-https --ignorePattern=signals --entry-file=main.html
+	@live-server --host=0.0.0.0 --https=/home/stagas/.nvm/versions/node/v12.9.1/lib/node_modules/live-server-https --ignorePattern=signals --entry-file=main.html & \
+		sudo stunnel3 -d 443 -r 80 -p ./stunnel.pem -f
 
 php: clean build
 	@php -S 0.0.0.0:1337 dist.php
