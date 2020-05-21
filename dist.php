@@ -200,10 +200,10 @@ a:visited {
 
 @media (max-width: 600px) {
   .side {
-    z-index: 1;
+    z-index: 100;
     right: 0;
     text-align: right;
-    position: absolute;
+    position: fixed;
     width: auto;
     max-height: 50%;
     overflow-y: scroll;
