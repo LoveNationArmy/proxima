@@ -4,10 +4,22 @@
   header('Access-Control-Allow-Methods: *');
   header('Access-Control-Allow-Headers: *');
 
+  // make data dirs
   $datadir = getcwd() . '/signals/';
   if (!is_dir($datadir)) {
     mkdir($datadir . 'offers', 0777, true);
     mkdir($datadir . 'answers', 0777, true);
+  }
+
+  // delete old files
+  $files = glob($datadir . '/*/*');
+  $now = time();
+  foreach ($files as $file) {
+    if (is_file($file)) {
+      if ($now - filemtime($file) >= 60 * 2) { // 2 minutes
+        unlink($file);
+      }
+    }
   }
 
   switch ($_SERVER['REQUEST_METHOD']) {

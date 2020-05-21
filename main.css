@@ -271,7 +271,8 @@ a:visited {
   color: var(--dark);
 }
 
-@media (max-width: 600px) {
+@media (max-height: 400px) {
+  .chatbar .nick,
   .chatbar .target {
     display: none;
   }
