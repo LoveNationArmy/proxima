@@ -28,7 +28,7 @@ export async function parse (data, filter) {
     }
     switch (msg.command) {
       case 're': (map[msg.target].replies = map[msg.target].replies || []).push(msg); break
-      case 'iam': nicks.set(msg.cid, msg.text); break
+      case 'nick': nicks.set(msg.cid, msg.text); break
       case 'key': keys.set(msg.cid, msg.text); break
       case 'join': channel(msg.text).users.add(msg.cid); break
       case 'part': channel(msg.text).users.delete(msg.cid); break

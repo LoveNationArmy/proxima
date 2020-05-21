@@ -18,6 +18,7 @@ export default class Net extends EventTarget {
     this.peers = []
     this.offerPeers = new Map()
     this.format = formatter(this.cid)
+    this.notice = formatter('notice')
   }
 
   async connect () {

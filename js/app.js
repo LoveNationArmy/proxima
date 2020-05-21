@@ -70,7 +70,7 @@ export default class App {
   async render () {
     this.state.view = await parse(this.state.merge(true))
     const html = this.ui.toString(true)
-    dom(this.el, html, { trim: true })
+    dom(this.el, html)
   }
 }
 
