@@ -124,8 +124,8 @@ class ChatArea {
       <div class="chatarea">
         <div class="wall">
           ${ peer && peer.localStream ? `<div class="streams">` : ''}
-          ${ peer && peer.localStream ? `<video id="localVideo" onrender="${ this.setStream }('local')" autoplay playsinline style="transform: scaleX(-1)"></video>` : '' }
-          ${ peer && peer.remoteStream ? `<video id="remoteVideo" onrender="${ this.setStream }('remote')" autoplay playsinline ${peer.remoteStream.getAudioTracks().length ? 'controls' : ''}></video>` : '' }
+          ${ peer && peer.localStream ? `<video id="localVideo" onupdate="${ this.setStream }('local')" autoplay playsinline style="transform: scaleX(-1)"></video>` : '' }
+          ${ peer && peer.remoteStream ? `<video id="remoteVideo" onupdate="${ this.setStream }('remote')" autoplay playsinline ${peer.remoteStream.getAudioTracks().length ? 'controls' : ''}></video>` : '' }
           ${ peer && peer.localStream ? `</div>` : ''}
           ${ $.map(channel.wall, post => $(Post, post, { view, channel })) }
         </div>
@@ -160,9 +160,10 @@ class ChatArea {
     this.muted = null
     this.muted = kind === 'local'
     this.controls = null
-    this.controls = kind === 'remote'
+    this.controls = kind === 'remote' && peer.remoteStream.getAudioTracks().length > 0
     this.srcObject = null
     this.srcObject = peer[kind + 'Stream']
+    return false
   }
 
   async toggleStream (kind) {

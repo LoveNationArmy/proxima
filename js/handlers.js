@@ -58,11 +58,10 @@ export default class Handlers {
     const kind = text.split(' ')[0]
     text = text.split(' ').slice(1).join(' ')
     await peer.connection.setRemoteDescription(JSON.parse(text))
-    if (peer.removeStream(kind)) {
-      const answer = await peer.connection.createAnswer()
-      await peer.connection.setLocalDescription(answer)
-      this.app.dispatch(`trackendanswer:${cid}`, kind, JSON.stringify(peer.connection.localDescription))
-    }
+    peer.removeStream(kind)
+    const answer = await peer.connection.createAnswer()
+    await peer.connection.setLocalDescription(answer)
+    this.app.dispatch(`trackendanswer:${cid}`, kind, JSON.stringify(peer.connection.localDescription))
   }
 
   async trackoffer ({ peer, target, cid, text }) {
